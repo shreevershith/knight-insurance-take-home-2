@@ -1,0 +1,38 @@
+# docker compose up --build   ->  http://localhost:8000
+# Two containers: the app and Postgres 18 (D-33). Secrets come from .env (never baked into the image):
+# ANTHROPIC_API_KEY, and POSTGRES_PASSWORD for this container database.
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: knight
+      POSTGRES_DB: knight
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knight -d knight"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # no published port: only the app reaches it (the host's own Postgres on 5432 is untouched)
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # overrides the host DATABASE_URL in .env: inside compose the database is the "db" service
+      DATABASE_URL: postgresql+psycopg://knight:${POSTGRES_PASSWORD}@db:5432/knight
+      DATA_DIR: /app/data
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      # the host's data/ folder: the LLM cache and cost ledger are shared with local runs
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

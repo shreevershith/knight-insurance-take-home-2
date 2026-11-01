@@ -401,7 +401,7 @@ A real path through the same stages: one process, one DB, same data model.
    ─► web UI (summary · extracted · missing · conflicts · AI findings · rule outcomes · next actions) ─► overrides ─► audit log ─► re-run rules
 ```
 
-Stack (as built): Python 3.12 · FastAPI · **PostgreSQL 18** through SQLAlchemy and psycopg (D-33; SQLite still works by removing `DATABASE_URL`) · Jinja templates with plain JavaScript (no HTMX) · pdfplumber/pypdfium2 + openpyxl · Anthropic Claude API with per-task models (Haiku classify/extract, Sonnet transcribe, Opus analyst; D-31) · pytest. Run with `uvicorn app.web.main:app`; Docker is designed, not built (D-25).
+Stack (as built): Python 3.12 · FastAPI · **PostgreSQL 18** through SQLAlchemy and psycopg (D-33; SQLite still works by removing `DATABASE_URL`) · Jinja templates with plain JavaScript (no HTMX) · pdfplumber/pypdfium2 + openpyxl · Anthropic Claude API with per-task models (Haiku classify/extract, Sonnet transcribe, Opus analyst; D-31) · pytest. Run with `uvicorn app.web.main:app`, or `docker compose up --build` (app + Postgres 18; D-25).
 
 **Claims check (11/01/2026, against the code).** Verified = true as written; Partial = true with the stated gap; Missing = not built (claim downgraded).
 
@@ -418,7 +418,8 @@ Stack (as built): Python 3.12 · FastAPI · **PostgreSQL 18** through SQLAlchemy
 | Async processing | Each job runs in a background thread. An atomic claim allows one active job per submission (a second start gets HTTP 409). A restart marks cut-off jobs INTERRUPTED. The UI polls a status endpoint for the live step list. There is **no job table, worker process, SKIP LOCKED, lease or retry count** (D-25). Database: Postgres 18 (D-33). | **Partial** (in-process); queue and workers **Designed** | `app/web/main.py:31`, `:221`; `app/pipeline.py:36`, `:47`; tests `test_one_active_job_per_submission`, `test_restart_marks_cut_off_jobs_interrupted` |
 | All guideline rules | 42 rules covering every section of the guideline. PRO-04 is covered by ST-01/ST-04, and RTE-02 is the decision mapping. An undeterminable input gives `NOT_EVALUATED` (refer, never pass). | **Verified** | `app/rules/knight_v1.yaml`; `app/rules/engine.py`; `app/rules/guideline_rules.py:145` |
 | Config-driven outcome | `operating_states_mode: decline` turns the sample from REFER to DECLINE; the rules version changes with the file. | **Verified** | `app/rules/knight_v1.yaml:12`, `app/rules/engine.py:333`; tests `test_states_dedupe_and_config_flip`, `test_config_change_changes_version` |
-| Real email ingestion, SSO/RBAC, KMS, FMCSA lookups, dashboards, multi-tenant, Docker | – | **Designed only** | |
+| Real email ingestion, SSO/RBAC, KMS, FMCSA lookups, dashboards, multi-tenant | – | **Designed only** | |
+| Docker | `Dockerfile` (non-root, healthcheck) + `docker-compose.yml` (app + Postgres 18, secrets from `.env`). Sample 87/87 inside the container (RUN_LOG DK1). | **Verified** | `Dockerfile`, `docker-compose.yml` |
 
 **Scope: full, no planned cuts (D-20).** The list below is a contingency only, kept because the original brief asked for it.
 **Cut order if time runs short** (first cut first):

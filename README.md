@@ -37,6 +37,16 @@ cp .env.example .env                                        # then set ANTHROPIC
 
 Open http://localhost:8000 and drop an `.eml` (or the files) on the page.
 
+**With Docker** (Docker Desktop only; no other service): set `ANTHROPIC_API_KEY` and `POSTGRES_PASSWORD` in `.env`, then
+
+```bash
+docker compose up --build -d          # app + Postgres 18 -> http://localhost:8000
+docker compose exec app python -m pytest -q
+```
+
+The app container uses its own Postgres (not exposed on the host). `data/` is mounted, so uploads, the LLM cache and the
+cost ledger are shared with local runs. `APP_PORT` picks another host port.
+
 - **Database:** SQLite under `data/` by default. For PostgreSQL, set `DATABASE_URL` in `.env`
   (`postgresql+psycopg://user:pass@localhost:5432/knight`). On Windows, `scripts/pg_setup.ps1` creates the
   database and user and checks the login (D-33).
@@ -82,7 +92,7 @@ email ─► intake (zip, dedupe) ─► pages ─► classify (rules first, mod
 - **Guards that hold across all rules:** a value that couldn't be read is never reported as missing; a rule never
   passes on a low-confidence value; a decline needs cited evidence; a rule cites only the values it relies on.
 - **Built vs designed.** Built: a single process with background jobs, an atomic one-job-per-submission claim and
-  restart recovery, on PostgreSQL. Designed only: queue workers (SQS, `SKIP LOCKED` leases, retries), Docker, real
+  restart recovery, on PostgreSQL. Built: Docker (app + Postgres). Designed only: queue workers (SQS, `SKIP LOCKED` leases, retries), real
   mailbox intake, SSO/RBAC, FMCSA/SAFER lookups. See PLAN.md §5a and D-25.
 
 ## Where things are

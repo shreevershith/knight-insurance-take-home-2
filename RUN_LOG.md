@@ -363,3 +363,10 @@ submission doesn't trigger the IFTA re-read, empty-page escalation or same-term 
 The rules-version change from the review fixes marked two AI summaries out of date (the decisions didn't change). The
 analyst was re-run on Opus for the sample (#7, $0.209) and held-out #2 (#6, $0.113): **$0.32 total**. Both are current
 (no error, no out-of-date flag); sample 87/87, held-out #2 69/70.
+
+### Docker (DK1, 11/01)
+
+`docker compose up --build`: app and Postgres 18 containers both healthy. The sample email was uploaded through the web
+form (`POST /submissions`) to the container app and processed end to end on the container's own database: **87/87,
+REFER, Small Fleet**, $0.217 (39 cache hits from the mounted `data/`, one new analyst call). 65 tests pass inside the
+container.
