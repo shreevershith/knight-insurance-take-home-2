@@ -29,6 +29,10 @@ def assign_keys(facts: list[dict], page_ctx: dict, known_drivers: list[dict]) ->
     {key, name, dob, license} across the submission for name+DOB matching."""
     items = _items(facts)
     keys = {}
+    starts = defaultdict(int)  # prior-policy term starts on this page -> how many policies share one
+    for (group, index), d in items.items():
+        if any(f["entity_type"] == "prior_policy" and f["group"] == group and f["index"] == index for f in facts):
+            starts[normalize("term_start", d.get("term_start"))] += 1
     for (group, index), d in items.items():
         etype = next(f["entity_type"] for f in facts if f["group"] == group and f["index"] == index)
         if etype == "driver":
@@ -47,7 +51,13 @@ def assign_keys(facts: list[dict], page_ctx: dict, known_drivers: list[dict]) ->
             keys[(group, index)] = f"ifta:{period or page_ctx['doc_id']}"
             page_ctx["ifta_period"] = period
         elif etype == "prior_policy":
-            keys[(group, index)] = f"prior_policy:{normalize('term_start', d.get('term_start')) or index}"
+            start = normalize("term_start", d.get("term_start"))
+            key = f"prior_policy:{start or index}"
+            # several policies on one term (AL and cargo listed separately): one entity each, by policy
+            # number, so they don't merge; a single policy per term keeps the plain key across documents
+            if start and starts.get(start, 0) > 1:
+                key += f":{norm_id(d.get('policy_number')) or index}"
+            keys[(group, index)] = key
         elif etype in ("applicant", "coverage", "operations"):
             keys[(group, index)] = etype
         elif etype == "commodity":

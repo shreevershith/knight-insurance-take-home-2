@@ -362,8 +362,9 @@ def commodity_lists(v: SubmissionView) -> list[dict]:
         if not name.raw:
             continue
         doc = key.split(":")[1]
-        lst = lists.setdefault(doc, {"names": [], "shares": [], "ids": []})
+        lst = lists.setdefault(doc, {"names": [], "shares": [], "ids": [], "name_ids": []})
         lst["names"].append(name.raw)
+        lst["name_ids"].append(name.field_ids)
         lst["shares"].append(parse_number(pct.raw))
         lst["ids"] += name.field_ids + pct.field_ids
     for lst in lists.values():
@@ -382,10 +383,10 @@ def _commodity_check(v, pattern, label) -> Result:
     lists = commodity_lists(v)
     if not lists:
         return missing(v, "Commodity list", APP_DOCS)
-    hits = [n for lst in lists for n in lst["names"] if re.search(pattern, n, re.I)]
+    hits = [(n, ids) for lst in lists for n, ids in zip(lst["names"], lst["name_ids"]) if re.search(pattern, n, re.I)]
     if hits:
-        return Result(False, f"{label}: commodity {', '.join(hits)}",
-                      [i for lst in lists for i in lst["ids"]])
+        # cite only the matching commodity names: the other entries don't bear on a hit (D-34)
+        return Result(False, f"{label}: commodity {', '.join(n for n, _ in hits)}", [i for _, ids in hits for i in ids])
     complete = [lst for lst in lists if lst["complete"]]
     if not complete:
         totals = ", ".join(f"{lst['total']}%" if lst["total"] is not None else "shares missing" for lst in lists)

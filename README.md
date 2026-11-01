@@ -47,7 +47,7 @@ Open http://localhost:8000 and drop an `.eml` (or the files) on the page.
 ## Tests and evaluation
 
 ```bash
-.venv/Scripts/python -m pytest -q                                           # 58 tests, no API calls
+.venv/Scripts/python -m pytest -q                                           # 65 tests, no API calls
 .venv/Scripts/python eval/run_eval.py                                       # the case-study sample
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/desert_ridge_expected.json
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/bluestem_expected.json
@@ -96,7 +96,7 @@ email ─► intake (zip, dedupe) ─► pages ─► classify (rules first, mod
 | `app/web/` | FastAPI app and templates |
 | `eval/` | Expected values, the eval runner, held-out submissions |
 | `PLAN.md` | Requirements checklist, the guideline as rules, ground truth, architecture, a claims check against the code |
-| `DECISIONS.md` | Every decision: what the spec said, the options, what was chosen and why (D-01 to D-34) |
+| `DECISIONS.md` | Every decision: what the spec said, the options, what was chosen and why (D-01 to D-35) |
 | `RUN_LOG.md` | Every real model run, its cost and eval score, and what changed because of it |
 
 ## Known limitations

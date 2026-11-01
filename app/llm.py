@@ -5,6 +5,7 @@ free. (Current models reject sampling params like temperature, so the cache is w
 runs repeatable.)
 """
 import base64
+import contextvars
 import hashlib
 import json
 import time
@@ -24,17 +25,19 @@ class LLMError(Exception):
 
 
 _client: anthropic.Anthropic | None = None
-run_id = ""  # set by the pipeline; every ledger line carries it so cost can be summed per run
+# Set by the pipeline per job; every ledger line carries it so cost can be summed per run. A ContextVar,
+# not a global: each job runs in its own thread, and two jobs at once must not log under each other's id.
+run_id: contextvars.ContextVar[str] = contextvars.ContextVar("run_id", default="")
 
 TIER_OF = {"classify_text": "classify", "classify_vision": "transcribe", "analyst": "analyst"}
 
 
 def tier_for(task: str) -> str:
-    return TIER_OF.get(task, "extract" if task.startswith("extract_") else "extract")
+    return TIER_OF.get(task, "extract")  # extract_<doc type> tasks
 
 
 def _ledger(**row) -> None:
-    row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id, **row}
+    row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id.get(), **row}
     with open(config.USAGE_LOG, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(row) + "\n")
 

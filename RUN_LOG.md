@@ -339,3 +339,11 @@ decision was right; the misses were all conservative.
 
 **Result:** held-out #2 69/70, held-out #1 72/72, sample 87/87; 58 tests. The measurements that count stay
 **49/72 (HO1) and 64/70 (HO4)**. Both held-out sets have now been used for fixes, so a new measurement needs a third.
+
+### Code-review fixes (CR1, 11/01, no model calls)
+
+`/code-review high build` found ten issues; all ten fixed (D-35). Verification without spending: 65 tests pass (7 new),
+and the rules were re-run on the stored submissions (sample #7, held-out #3 and #6): **87/87, 72/72, 69/70**, with no
+rule outcome or cited-value count changed. The extraction-time fixes (IFTA re-read keeps continuation pages, empty
+cheap-tier extraction escalates, human decisions re-applied after the re-read, separate keys for policies sharing a
+term) are tested with synthetic pages; a fresh pipeline run would exercise them on real input.

@@ -64,9 +64,8 @@ def run(submission_id: int, claimed: bool = False) -> None:
         return
     db = SessionLocal()
     sub = db.get(Submission, submission_id)
-    llm.run_id = f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}"
-    if config.RUN_LABEL:
-        llm.run_id += f"-{config.RUN_LABEL}"
+    label = f"-{config.RUN_LABEL}" if config.RUN_LABEL else ""
+    llm.run_id.set(f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}{label}")
     try:
         reset_for_reprocess(db, sub)
         progress(db, sub, "Splitting files into pages")
@@ -148,7 +147,7 @@ def run_analysis(submission_id: int, claimed: bool = False) -> None:
     from app.analyst import analyze
     db = SessionLocal()
     sub = db.get(Submission, submission_id)
-    llm.run_id = f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-analysis"
+    llm.run_id.set(f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-analysis")
     try:
         progress(db, sub, "AI analyst: re-running on the reviewed values")
         try:
@@ -227,14 +226,18 @@ def _inherit_continuations(sub):
     page holds rows and the total). Pages the content rules marked as a report trailer ("END OF
     REPORT FOR ...") stay CONTINUATION: there is nothing on them to extract."""
     for d in sub.documents:
-        prev = None
-        for p in d.pages:
-            if p.doc_type == "CONTINUATION" and prev:
-                p.classify_reason += f" (continues {prev})"
-                if p.classify_method != "rules" and prev in SPEC:
-                    p.doc_type = prev
-            elif p.doc_type:
-                prev = p.doc_type
+        _inherit_in_document(d)
+
+
+def _inherit_in_document(doc):
+    prev = None
+    for p in doc.pages:
+        if p.doc_type == "CONTINUATION" and prev:
+            p.classify_reason += f" (continues {prev})"
+            if p.classify_method != "rules" and prev in SPEC:
+                p.doc_type = prev
+        elif p.doc_type:
+            prev = p.doc_type
 
 
 def _extract(db, sub, doc: Document, page: Page, page_ctx: dict, known_drivers: list[dict]):
@@ -302,9 +305,11 @@ def _llm_extract(db, sub, doc, page, ctx):
     else:
         unverified = sum(not evidence.excerpt_in_source(f["excerpt"], page.text) for f in facts)
         missing = [k for k in KEY_FIELDS.get(page.doc_type, ()) if not any(f["field"] == k for f in facts)]
-        if not cheap or not facts:
+        if not cheap:
             return facts
-        if missing:
+        if not facts:
+            reason = "no values extracted"  # an empty page would otherwise read as 'nothing there'
+        elif missing:
             reason = f"key fields not extracted: {', '.join(missing)}"
         elif unverified / len(facts) > ESCALATE_IF_UNVERIFIED:
             reason = f"{unverified}/{len(facts)} excerpts not found on the page"
@@ -398,14 +403,22 @@ def _escalate_ifta(db, sub, periods, known_drivers):
         for f in db.query(Field).filter(Field.page_id.in_([pg.id for pg in doc.pages]), Field.method != "human",
                                         Field.status != "REPLACED"):
             f.status = "REPLACED"
+        # Re-transcribe every scanned page first, then re-apply continuation inheritance for the whole
+        # document: a re-classified table page that comes back CONTINUATION is still read as the return.
+        for page in doc.pages:
+            if page.text_source != "vision_transcript" and page.status != "MODEL_ERROR":
+                continue
+            page.status, page.error = "OK", ""  # a page that failed the first pass gets its retry too
+            try:
+                classify_page(page, {"submission_id": sub.id, "page_id": page.id}, escalate=True, reason=reason)
+            except llm.LLMError as exc:
+                page.status, page.error = "MODEL_ERROR", str(exc)
+        _inherit_in_document(doc)
         page_ctx = {"doc_id": doc.id}
         for page in doc.pages:
-            if page.text_source == "vision_transcript":
-                try:
-                    classify_page(page, {"submission_id": sub.id, "page_id": page.id}, escalate=True, reason=reason)
-                except llm.LLMError as exc:
-                    page.status, page.error = "MODEL_ERROR", str(exc)
-                    continue
+            if page.status == "SKIPPED":
+                page.status = "OK"  # _extract decides again from the new type
             _extract(db, sub, doc, page, page_ctx, known_drivers)
     db.flush()
+    reapply_human_decisions(db, sub.id)  # human decisions win over the re-read values too
     _cross_document_confirmation(db, sub.id)

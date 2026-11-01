@@ -224,7 +224,11 @@ def status(sub_id: int, after: int = 0):
         sub = db.get(Submission, sub_id)
         if not sub:
             raise HTTPException(404)
-        logs = db.query(JobLog).filter(JobLog.submission_id == sub_id).order_by(JobLog.id).all()
+        # only the current run's lines: earlier runs' logs are kept, and this is polled every second
+        run_start = db.query(func.max(JobLog.id)).filter(JobLog.submission_id == sub_id,
+                                                         JobLog.message.like("=== New run%")).scalar() or 0
+        logs = (db.query(JobLog).filter(JobLog.submission_id == sub_id, JobLog.id >= run_start)
+                .order_by(JobLog.id).all())
         return JSONResponse({
             "status": sub.status, "step": sub.step, "decision": sub.decision, "team": sub.team,
             "stage": _stage(logs), "running": sub.status in ("RECEIVED", "PROCESSING"),

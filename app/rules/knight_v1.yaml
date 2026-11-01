@@ -56,7 +56,7 @@ patterns:
   # AMB-1: box trucks / transit vans are straight trucks, but the guideline names them as selective:
   # they go to SEL-02 (refer) and are not declined by APP-02
   box_truck: 'box truck|box van|transit|cargo van|step van'
-  interstate: '48 states|interstate|regional|nationwide|long haul|multi.?state'
+  interstate: '48 states|interstate|nationwide|long haul|multi.?state'  # not 'regional': a region can be one state
   no_deductible: '^\s*(none|no|n/?a|do not offer|not requested|\$?\s*-|\$?\s*0(\.0+)?)\s*$'
   # Unacceptable driver history (DECLINE). DUI/DWI only within dui_lookback_months; the rest at any time (AMB-9)
   dui: '\bDUI\b|\bDWI\b|\bOWI\b|\bOUI\b|under the influence|intoxicat|impaired'

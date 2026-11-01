@@ -8,7 +8,7 @@ from params and keyword lists from patterns in the rules YAML.
 import re
 from datetime import date, timedelta
 
-from app.extract.normalize import parse_date, parse_number, state_code
+from app.extract.normalize import coverage_line, parse_date, parse_number, state_code
 from app.rules import derived
 from app.rules.engine import APP_DOCS, Result, _per_driver, commodity_lists, missing, rule
 
@@ -105,15 +105,23 @@ def _entity_kind(v, cfg):
 
 def _terms(v, prefix: str) -> list[tuple[date, date, str, list[int]]]:
     """Policy terms (start, end, label, field ids) for entities under prefix, sorted by start."""
-    out = []
-    for key in v.entities(prefix):
-        start, end = v.value(key, "term_start"), v.value(key, "term_end")
-        carrier = v.value(key, "carrier")
-        s, e = parse_date(start.raw), parse_date(end.raw)
-        if s and e:
-            label = f"{carrier.raw + ' ' if carrier.raw else ''}{s:%m/%d/%Y}–{e:%m/%d/%Y}"
-            out.append((s, e, label, start.field_ids + end.field_ids))  # the carrier is only a label
-    return sorted(out)
+    return sorted(t for key in v.entities(prefix) if (t := _term(v, key)))
+
+
+def _term(v, key: str) -> tuple[date, date, str, list[int]] | None:
+    start, end = v.value(key, "term_start"), v.value(key, "term_end")
+    carrier = v.value(key, "carrier")
+    s, e = parse_date(start.raw), parse_date(end.raw)
+    if not (s and e):
+        return None
+    label = f"{carrier.raw + ' ' if carrier.raw else ''}{s:%m/%d/%Y}–{e:%m/%d/%Y}"
+    return s, e, label, start.field_ids + end.field_ids  # the carrier is only a label
+
+
+def _listed_lines(v, key) -> set[str]:
+    """Lines a listed prior policy covers, as codes: 'LIAB/PHD/MTC' -> {AL, APD, MTC}."""
+    text = v.value(key, "coverage_lines").raw or ""
+    return {code for part in re.split(r"[/,&+;]|\band\b", text) if (code := coverage_line(part))}
 
 
 def _gaps(terms, start: date, end: date, max_lapse: int) -> list[tuple[date, date, int]]:
@@ -518,7 +526,8 @@ def _coverage_terms(v):
     add a term the listing doesn't have. A rule cites only what it relies on, so a duplicate read off a
     photo can't hold back a result the typed listing already supports."""
     listed = _terms(v, "prior_policy:")
-    extra = [t for t in _terms(v, "loss_run:") if not any(abs((t[0] - lt[0]).days) <= 3 for lt in listed)]
+    # auto liability loss runs only: a cargo or physical-damage term is not evidence of AL coverage
+    extra = [t for t in _terms(v, "loss_run:AL:") if not any(abs((t[0] - lt[0]).days) <= 3 for lt in listed)]
     return sorted(listed + extra)
 
 
@@ -556,12 +565,18 @@ def lapses_explained(v, cfg) -> Result:
 
 @rule("PRI-03")
 def losses_for_every_prior_term(v, cfg) -> Result:
-    listed = _terms(v, "prior_policy:")
+    listed = sorted((t, _listed_lines(v, key)) for key in v.entities("prior_policy:") if (t := _term(v, key)))
     if not listed:
         return missing(v, "Prior insurance terms on the application", APP_DOCS)
-    loss_runs = _terms(v, "loss_run:")
-    without = [t for t in listed if not any(abs((t[0] - lr[0]).days) <= 3 for lr in loss_runs)]
-    ids = [i for t in listed for i in t[3]]
+
+    def covered(term, lines) -> bool:
+        # the AL loss run is the one required (D-17), so a cargo loss run doesn't stand in for it; a term
+        # listed only for other lines (cargo, physical damage) is covered by a loss run of one of those
+        need = {"AL"} if not lines or "AL" in lines else lines
+        return any(abs((term[0] - lr[0]).days) <= 3 for code in need for lr in _terms(v, f"loss_run:{code}:"))
+
+    without = [t for t, lines in listed if not covered(t, lines)]
+    ids = [i for t, _ in listed for i in t[3]]
     if without:
         if v.unread(LOSS_DOCS):
             return Result(None, "no loss run found for " + ", ".join(t[2] for t in without)
