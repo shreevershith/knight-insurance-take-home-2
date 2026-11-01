@@ -1,0 +1,74 @@
+{
+  "_note": "HELD-OUT set #2 (D-19, D-34). Written from scratch on 11/01/2026 AFTER the held-out #1 fixes, and run ONCE on unchanged code: this is a measurement. Expected values derived by hand from the guideline before the first run. Anchor date = application date 09/28/2026. New vs the sample and held-out #1: a zip with misleading names, a duplicate attachment, an unsupported .docx, the schedule as a PDF (not a spreadsheet), four IFTA returns in one PDF with one scanned page, Tennessee MVRs, a new-venture corporation.",
+  "submission_subject": "Bluestem",
+  "documents": {
+    "notes.docx": "UNSUPPORTED",
+    "Application.pdf": "DUPLICATE"
+  },
+  "pages": {
+    "Document (3).pdf": "LOSS_RUN",
+    "schedule.pdf": "DRIVER_SCHEDULE",
+    "MVRs.pdf": "MVR",
+    "IFTA_returns_2025-2026.pdf": "IFTA_RETURN",
+    "Bluestem_App.pdf": "APPLICATION"
+  },
+  "fields": [
+    {"entity": "applicant", "field": "business_name", "expect": "BLUESTEM HAULAGE INC"},
+    {"entity": "applicant", "field": "fein", "expect": "62-3398154"},
+    {"entity": "applicant", "field": "dot_number", "expect": "4012775"},
+    {"entity": "applicant", "field": "mailing_state", "expect": "TN"},
+    {"entity": "applicant", "field": "application_date", "expect": "2026-09-28"},
+    {"entity": "applicant", "field": "new_venture", "expect": true},
+    {"entity": "coverage", "field": "apd_requested", "expect": true},
+    {"entity": "coverage", "field": "al_deductible", "expect": "$2,500", "match": "contains:2,500"},
+    {"entity": "driver:118820457", "field": "dob", "doc_types": ["MVR"], "expect": "2004-03-02"},
+    {"entity": "driver:097733561", "field": "mvr_order_date", "doc_types": ["MVR"], "expect": "2026-05-30", "why": "121 days old"},
+    {"entity": "loss_run:AL:HC66218", "field": "total_incurred", "expect": 35000},
+    {"entity": "ifta:2025-09-30", "field": "total_miles", "expect": 61200},
+    {"entity": "ifta:2025-12-31", "field": "total_miles", "expect": 58800},
+    {"entity": "ifta:2026-03-31", "field": "total_miles", "expect": 63000, "why": "the scanned page inside a text PDF"},
+    {"entity": "ifta:2026-06-30", "field": "total_miles", "expect": 66000}
+  ],
+  "derived": {
+    "cdl_years": {"DELANEY": 15.6, "BROOKS": 2.4, "SALINAS": 23.2}
+  },
+  "rules": {
+    "APP-01": "REFER", "APP-02": "DECLINE", "APP-03": "PASS",
+    "COV-01": "REFER", "COV-02": "FLAG", "NV-01": "PASS", "NV-02": "REFER",
+    "ST-01": "PASS", "ST-02": "PASS", "ST-03": "PASS", "ST-04": "REFER",
+    "SUB-01": "PASS", "SUB-02": "PASS", "SUB-03": "PASS", "SUB-04": "REFER", "SUB-05": "PASS",
+    "SUB-06": "PASS", "SUB-07": "REFER", "SUB-08": "REFER",
+    "DRV-01": "PASS", "DRV-02": "PASS", "DRV-03": "PASS", "DRV-04": "REFER", "DRV-05": "PASS",
+    "DRV-06": "REFER", "DRV-07": "PASS", "DRV-08": "DECLINE",
+    "PRO-01": "PASS", "PRO-02": "NOT_EVALUATED", "PRO-03": "NOT_EVALUATED", "PRO-05": "NOT_EVALUATED",
+    "PRO-06": "PASS", "PRO-07": "PASS", "PRO-08": "NOT_EVALUATED",
+    "SEL-01": "PASS", "SEL-02": "PASS", "SEL-03": "NOT_EVALUATED",
+    "PRI-01": "REFER", "PRI-02": "PASS", "PRI-03": "REFER",
+    "CONFLICTS": "REFER", "RTE-01": "FLAG"
+  },
+  "rules_why": {
+    "APP-01": "unit 3 is a tow truck, not a tractor",
+    "APP-02": "2015 Ford F-550 tow truck: not eligible -> DECLINE",
+    "COV-01": "AL deductible $2,500 requested",
+    "COV-02": "APD quote requested -> note for the agent",
+    "NV-02": "2 years in business, new venture: yes, corporation -> underwriter review",
+    "ST-02": "no Texas miles",
+    "ST-04": "IFTA miles in MS and KY",
+    "SUB-04": "only the expiring term's loss run (HC-66218); 3 prior years required",
+    "SUB-07": "Salinas MVR 05/30/2026 is 121 days old",
+    "SUB-08": "unit 2 (2018 Peterbilt) has no stated value",
+    "DRV-04": "Brooks is 22",
+    "DRV-06": "Salinas: 5 + 2 = 7 points in 36 months",
+    "DRV-08": "Salinas: speeding 31-35 mph over (04/22/2025) -> DECLINE",
+    "PRO-02": "commodities 50 + 25 + 15 = 90%: list not complete (D-29)",
+    "PRO-06": "towing answered No (the tow truck is caught by APP-02)",
+    "PRI-01": "first coverage 10/15/2024; the 3-year window starts 09/28/2023",
+    "PRI-03": "no loss run for the listed Hollis HC-55102 term",
+    "CONFLICTS": "insured name HAULAGE (app) vs HAULING (loss run); listed term without a loss run"
+  },
+  "decision": "DECLINE",
+  "team": "Small Fleet",
+  "conflicts": [
+    {"entity": "applicant", "field": "business_name", "why": "BLUESTEM HAULAGE INC vs BLUESTEM HAULING INC"}
+  ]
+}

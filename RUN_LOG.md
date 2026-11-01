@@ -26,6 +26,7 @@ Raw outputs of each experiment are in `eval/experiments/`.
 | HO2 | 11/01 08:09 | fixes 1–4 | Held-out again after the four fixes (application pages re-extracted; the rest from cache) | 3 new + 23 cached | ~70 s | $0.16 | 69/72 | Remaining: DRV-07 and SUB-04 cited values they don't rely on (below) |
 | S2 | 11/01 08:10 | fixes 1–4 | Sample again (regression check after the fixes) | 2 new + 38 cached | ~70 s | $0.24 | **87/87** | No regression |
 | HO3 | 11/01 08:14 | this commit | Rules re-run on HO2 and S2 after fix 5 (no model calls) | 0 | – | $0 | **72/72** held-out, **87/87** sample | Held-out decision now DECLINE. **72/72 is a regression result, not a measurement** (the fixes were found with this file) |
+| **HO4** | 11/01 16:01 | `d389d46` (unchanged) | **Held-out #2** (Bluestem Haulage, TN), written after the held-out #1 fixes, **run once** | 24 (+3 cached, 1 escalated) | ~2.5 min | **$0.17** | **64/70** | **Decision correct (DECLINE)**: tow truck and 31-35 over both caught. 6 misses, all toward NOT_EVALUATED/REFER |
 
 ## Run 1: first real run (baseline)
 
@@ -293,3 +294,32 @@ Each fix targets the general cause, not this file's exact wording:
 
 **Result:** held-out 72/72 with decision DECLINE (the DUI), and the sample still 87/87. **The held-out number that
 counts is 49/72 (HO1).** A new measurement needs a second held-out submission, not built.
+
+## Held-out #2 measurement (HO4, 11/01)
+
+**Built after the held-out #1 fixes and run once on unchanged code (`d389d46`), so 64/70 is a measurement.**
+Expected values were written first (`eval/heldout/bluestem_expected.json`); the generator is `scripts/make_heldout2.py`.
+
+**Correct:**
+- the decision (DECLINE, from two independent planted declines);
+- the zip unpacked, the duplicate application flagged DUPLICATE, the .docx flagged UNSUPPORTED;
+- a misleadingly named loss run classified by content;
+- the PDF driver and vehicle schedule (no spreadsheet this time) read;
+- the 22-year-old driver, the 121-day-old MVR, the AL deductible, the APD flag, the new-venture corporation, the missing
+  stated value, the speeding points, the short coverage history, the missing loss run and the HAULAGE/HAULING conflict;
+- the 90% commodity list correctly treated as incomplete for PRO-02/PRO-08.
+
+**Misses (3 causes, 6 checks; every one toward NOT_EVALUATED/REFER, none toward a wrong PASS or DECLINE):**
+1. **Several IFTA returns in one PDF, one scanned (2 checks).** The scanned page's table was read in code, but its quarter
+   was taken from the previous page, because a document's IFTA period carries over to its later pages (true for the
+   sample, where page 2 continues page 1's return). So the Q1 2026 rows were filed under Q4 2025, Q4 stopped reconciling
+   (an Opus re-transcription didn't help, since transcription wasn't the problem), and Q1 2026 counted as missing:
+   SUB-05 refers.
+2. **State inside a one-line address (3 checks).** "418 Industrial Pkwy, Jackson, TN 38301": the model didn't fill a
+   separate state field, so ST-01 and ST-03 are NOT_EVALUATED. This is safe (refer), but the state is right there.
+3. **An explicit "No" ignored (1 check).** "Towing or recovery operations: No" was answered, but PRO-06 only uses the
+   answer when it is Yes. With the commodity list incomplete (90%), it became NOT_EVALUATED, inconsistent with PRO-01 and
+   PRO-07, where an explicit No passes.
+
+**Summary across both held-out sets:** 49/72 (HO1) and 64/70 (HO4), both on unseen input. On the second, every hard
+decision was right; the misses were all conservative.
