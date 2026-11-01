@@ -78,6 +78,10 @@ def run(submission_id: int) -> None:
         failed = _ifta_reconciliation(db, sub.id)
         if failed and config.route("transcribe")[0] != config.ESCALATION_MODEL:
             _escalate_ifta(db, sub, failed, known_drivers)
+            failed = _ifta_reconciliation(db, sub.id)
+        if failed:
+            progress(db, sub, f"IFTA return(s) {', '.join(failed)} not confirmed: rows don't match a printed "
+                              "total (or none was found). Their values stay LOW_CONFIDENCE.", "WARN")
         db.commit()
 
         progress(db, sub, "Detecting conflicts and duplicates")
@@ -165,11 +169,16 @@ def _classify(db, sub, page: Page):
 
 
 def _inherit_continuations(sub):
+    """A continuation page is extracted as the document type it continues (an IFTA table's second
+    page holds rows and the total). Pages the content rules marked as a report trailer ("END OF
+    REPORT FOR ...") stay CONTINUATION: there is nothing on them to extract."""
     for d in sub.documents:
         prev = None
         for p in d.pages:
             if p.doc_type == "CONTINUATION" and prev:
                 p.classify_reason += f" (continues {prev})"
+                if p.classify_method != "rules" and prev in SPEC:
+                    p.doc_type = prev
             elif p.doc_type:
                 prev = p.doc_type
 
@@ -220,6 +229,11 @@ def _extract(db, sub, doc: Document, page: Page, page_ctx: dict, known_drivers: 
     progress(db, sub, f"{doc.filename} p{page.page_no}: {len(facts)} values ({low} low confidence)")
 
 
+# Fields an entity is keyed by: a cheap-tier page without them is re-run on the escalation model
+# (Haiku once dropped a loss run's line of business, so the AL policy was keyed "loss_run:?:...").
+KEY_FIELDS = {"LOSS_RUN": ("line", "policy_number"), "DRIVER_LICENSE": ("license_number",)}
+
+
 def _llm_extract(db, sub, doc, page, ctx):
     """Extraction on the task's tier; one re-run on the escalation model if the result fails the code
     checks (model error, or too many values whose excerpt isn't on the page)."""
@@ -233,9 +247,15 @@ def _llm_extract(db, sub, doc, page, ctx):
         reason = f"model error: {exc}"
     else:
         unverified = sum(not evidence.excerpt_in_source(f["excerpt"], page.text) for f in facts)
-        if not cheap or not facts or unverified / len(facts) <= ESCALATE_IF_UNVERIFIED:
+        missing = [k for k in KEY_FIELDS.get(page.doc_type, ()) if not any(f["field"] == k for f in facts)]
+        if not cheap or not facts:
             return facts
-        reason = f"{unverified}/{len(facts)} excerpts not found on the page"
+        if missing:
+            reason = f"key fields not extracted: {', '.join(missing)}"
+        elif unverified / len(facts) > ESCALATE_IF_UNVERIFIED:
+            reason = f"{unverified}/{len(facts)} excerpts not found on the page"
+        else:
+            return facts
     progress(db, sub, f"{doc.filename} p{page.page_no}: escalated to {config.ESCALATION_MODEL} ({reason})", "WARN")
     return extract_page(page, page.doc_type, use_image, ctx, escalate=True, reason=reason)
 
@@ -272,10 +292,13 @@ def _ifta_reconciliation(db, submission_id):
             rows[f.entity_key.split(":")[1]].append(f)
         if f.entity_type == "ifta" and f.name == "total_miles":
             totals[f.entity_key.split(":", 1)[1]] = f
-    for period, total_field in totals.items():
+    periods = {f.entity_key.split(":")[1] for f in fields if f.entity_type in ("ifta", "ifta_row")}
+    for period in sorted(periods):
+        total_field = totals.get(period)
         row_sum = sum(parse_number(f.value) or 0 for f in rows.get(period, []))
-        printed = parse_number(total_field.value)
-        ok = printed is not None and abs(row_sum - printed) < 0.5
+        # No printed total, or no rows, is a failed check too: the return can't be confirmed.
+        printed = parse_number(total_field.value) if total_field else None
+        ok = printed is not None and bool(rows.get(period)) and abs(row_sum - printed) < 0.5
         related = [f for f in fields if f.entity_key.startswith(f"ifta:{period}") or f.entity_key.startswith(f"ifta_row:{period}")]
         for f in related:
             f.validation = {**f.validation, "ifta_rows_sum_to_total": ok}
@@ -311,4 +334,3 @@ def _escalate_ifta(db, sub, periods, known_drivers):
             _extract(db, sub, doc, page, page_ctx, known_drivers)
     db.flush()
     _cross_document_confirmation(db, sub.id)
-    _ifta_reconciliation(db, sub.id)

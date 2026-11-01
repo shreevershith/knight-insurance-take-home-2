@@ -144,6 +144,17 @@
       "field": "total_miles",
       "expect": 103773,
       "why": "skewed photocopy"
+    },
+    {
+      "entity": "ifta:2026-03-31",
+      "field": "total_miles",
+      "expect": 142087,
+      "why": "total row is on the continuation page p3"
+    },
+    {
+      "entity": "ifta:2025-12-31",
+      "field": "total_miles",
+      "expect": 130981
     }
   ],
   "derived": {

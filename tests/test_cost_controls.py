@@ -59,3 +59,15 @@ def test_full_width_total_row_reads_the_total_miles_column():
     page = PAGE_2.split("\nAlabama")[0] + "\nAlabama | | 2. Diesel | 448 | 448 | 6.05 | 74 | 39 | 35 | 0.29 | $1 | $0 | $1\n | | | 448 | 448 | | 74 | 39 | 35 | | $1 | $0 | $1"
     facts = parse_ifta_page(page, {"doc_id": 1})
     assert [f["value"] for f in facts if f["entity_type"] == "ifta"] == ["448"]
+
+
+def test_continuation_page_is_extracted_as_the_document_it_continues():
+    from types import SimpleNamespace as NS
+    from app.pipeline import _inherit_continuations
+    table = NS(doc_type="CONTINUATION", classify_method="llm_vision", classify_reason="tail rows")
+    trailer = NS(doc_type="CONTINUATION", classify_method="rules", classify_reason="END OF REPORT")
+    sub = NS(documents=[NS(pages=[NS(doc_type="IFTA_RETURN", classify_method="llm_vision", classify_reason=""), table]),
+                        NS(pages=[NS(doc_type="MVR", classify_method="rules", classify_reason=""), trailer])])
+    _inherit_continuations(sub)
+    assert table.doc_type == "IFTA_RETURN"      # rows + total get extracted
+    assert trailer.doc_type == "CONTINUATION"   # nothing to extract on a report trailer
