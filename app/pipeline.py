@@ -35,7 +35,7 @@ def run(submission_id: int) -> None:
     sub = db.get(Submission, submission_id)
     try:
         sub.status = "PROCESSING"
-        _reset_derived(db, sub)
+        reset_for_reprocess(db, sub)
         progress(db, sub, "Splitting files into pages")
         docs = [d for d in sub.documents if d.status == "OK"]
         for d in docs:
@@ -64,6 +64,9 @@ def run(submission_id: int) -> None:
                 _extract(db, sub, d, p, page_ctx, known_drivers)
         db.commit()
 
+        reapplied = reapply_human_decisions(db, sub.id)
+        if reapplied:
+            progress(db, sub, f"Re-applied human decisions over {reapplied} re-extracted values")
         progress(db, sub, "Cross-checking values across documents")
         _cross_document_confirmation(db, sub.id)
         _ifta_reconciliation(db, sub.id)
@@ -98,16 +101,41 @@ def run(submission_id: int) -> None:
         db.close()
 
 
-def _reset_derived(db, sub):
-    """Re-runs start clean, but human overrides are re-applied, never lost."""
-    for model in (Conflict, RuleResult):
-        db.query(model).filter(model.submission_id == sub.id).delete()
-    db.query(Field).filter(Field.submission_id == sub.id, Field.method != "human").delete()
-    db.query(JobLog).filter(JobLog.submission_id == sub.id).delete()
+def reset_for_reprocess(db, sub):
+    """Start a new extraction run without destroying the previous one.
+
+    Nothing is deleted: previous extracted fields and conflicts are marked REPLACED (kept for audit,
+    hidden from rules), rule-run history stays, and human decisions (method="human" fields) stay
+    active. After re-extraction they are re-applied by (entity_key, field), not by row id."""
+    for f in db.query(Field).filter(Field.submission_id == sub.id, Field.method != "human",
+                                    Field.status != "REPLACED"):
+        f.validation = {**(f.validation or {}), "status_before_replace": f.status}
+        f.status = "REPLACED"
+    for c in db.query(Conflict).filter(Conflict.submission_id == sub.id, Conflict.status != "REPLACED"):
+        c.description = f"[{c.status} before reprocess] {c.description}"
+        c.status = "REPLACED"
+    sub.decision, sub.team, sub.summary = "", "", {}
     for d in sub.documents:
         for p in d.pages:
             p.status, p.error = "PENDING", ""
+    db.add(JobLog(submission_id=sub.id, level="INFO", message="=== New run: previous values kept as REPLACED ==="))
     db.commit()
+
+
+def reapply_human_decisions(db, submission_id) -> int:
+    """Human decisions win over freshly extracted values of the same fact."""
+    humans = db.query(Field).filter(Field.submission_id == submission_id, Field.method == "human",
+                                    Field.status == "OK").all()
+    decided = {(h.entity_key, h.name): h for h in humans}
+    count = 0
+    for f in db.query(Field).filter(Field.submission_id == submission_id, Field.method != "human",
+                                    Field.status.in_(("OK", "LOW_CONFIDENCE"))):
+        h = decided.get((f.entity_key, f.name))
+        if h:
+            f.status = "SUPERSEDED"
+            f.validation = {**(f.validation or {}), "superseded_by_human": h.id}
+            count += 1
+    return count
 
 
 def _classify(db, sub, page: Page):

@@ -44,7 +44,7 @@ SCHEMA = {
 
 def build_context(db, sub: Submission) -> tuple[dict, set[str]]:
     fields = active_fields(db, sub.id)
-    conflicts = db.query(Conflict).filter(Conflict.submission_id == sub.id).all()
+    conflicts = db.query(Conflict).filter(Conflict.submission_id == sub.id, Conflict.status != "REPLACED").all()
     run = db.query(RuleResult).filter(RuleResult.submission_id == sub.id).order_by(RuleResult.id.desc()).first()
     rules = db.query(RuleResult).filter(RuleResult.submission_id == sub.id,
                                         RuleResult.run_id == run.run_id).all() if run else []

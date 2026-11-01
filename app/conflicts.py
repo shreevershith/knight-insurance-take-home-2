@@ -17,6 +17,8 @@ SOURCE_PRIORITY = {"MVR": 5, "DRIVER_LICENSE": 3, "APPLICATION": 4, "IFTA_RETURN
 
 
 def _source(f: Field) -> str:
+    if f.method == "human":
+        return f"human decision ({f.excerpt[:60]})"
     page = f.page
     if page is None:
         return "human override"
@@ -24,8 +26,11 @@ def _source(f: Field) -> str:
     return f"{page.document.filename} p{page.page_no}{label}"
 
 
+INACTIVE = ("SUPERSEDED", "REPLACED")
+
+
 def active_fields(db, submission_id) -> list[Field]:
-    return db.query(Field).filter(Field.submission_id == submission_id, Field.status != "SUPERSEDED").all()
+    return db.query(Field).filter(Field.submission_id == submission_id, Field.status.notin_(INACTIVE)).all()
 
 
 def detect(db, submission_id) -> list[Conflict]:
@@ -58,9 +63,33 @@ def detect(db, submission_id) -> list[Conflict]:
             found.append(conflict)
 
     found.extend(_listed_terms_without_loss_runs(submission_id, fields))
+    _apply_human_decisions(db, submission_id, found)
     for c in found:
         db.add(c)
     return found
+
+
+def _apply_human_decisions(db, submission_id, found: list[Conflict]) -> None:
+    """A conflict on a fact a human already decided is RESOLVED, citing that decision. A conflict a
+    human resolved in an earlier run (e.g. 'loss run requested from agent') is carried forward when
+    the same conflict reappears after reprocess."""
+    humans = {(f.entity_key, f.name): f for f in db.query(Field).filter(
+        Field.submission_id == submission_id, Field.method == "human", Field.status == "OK")}
+    earlier = {}
+    for c in db.query(Conflict).filter(Conflict.submission_id == submission_id, Conflict.status == "REPLACED",
+                                       Conflict.description.like("[RESOLVED before reprocess]%")):
+        earlier[(c.kind, c.entity_key, c.field_name)] = c
+    for c in found:
+        if c.status != "OPEN":
+            continue
+        h = humans.get((c.entity_key, c.field_name))
+        prior = earlier.get((c.kind, c.entity_key, c.field_name))
+        if h:
+            c.status = "RESOLVED"
+            c.resolution = f"Human decision F{h.id}: '{h.value}' ({h.excerpt[:80]})"
+        elif prior and not prior.resolution.startswith("System:"):
+            c.status = "RESOLVED"
+            c.resolution = f"Carried forward from conflict #{prior.id}: {prior.resolution}"
 
 
 TERM_MATCH_DAYS = 3  # carriers' term dates differ by a day (AL 12/15 vs cargo 12/16)

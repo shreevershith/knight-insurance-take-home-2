@@ -7,12 +7,11 @@ from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app import config, pipeline
+from app import config, pipeline, review
 from app.db import (AuditEvent, Conflict, Document, Field, JobLog, Page, RuleResult, SessionLocal, Submission,
                     audit, init_db)
 from app.intake import ingest_eml, ingest_files
 from app.log import setup_logging
-from app.rules.engine import evaluate
 
 setup_logging()
 init_db()
@@ -66,8 +65,12 @@ def show(request: Request, sub_id: int):
             raise HTTPException(404)
         docs = db.query(Document).filter(Document.submission_id == sub_id).order_by(Document.id).all()
         logs = db.query(JobLog).filter(JobLog.submission_id == sub_id).order_by(JobLog.id).all()
-        fields = db.query(Field).filter(Field.submission_id == sub_id).order_by(Field.entity_key, Field.name).all()
-        conflicts = db.query(Conflict).filter(Conflict.submission_id == sub_id).order_by(Conflict.id).all()
+        # earlier runs' rows (REPLACED) are kept for audit but not shown here
+        fields = (db.query(Field).filter(Field.submission_id == sub_id, Field.status != "REPLACED")
+                  .order_by(Field.entity_key, Field.name).all())
+        conflicts = (db.query(Conflict).filter(Conflict.submission_id == sub_id, Conflict.status != "REPLACED")
+                     .order_by(Conflict.id).all())
+        replaced = db.query(Field).filter(Field.submission_id == sub_id, Field.status == "REPLACED").count()
         last = db.query(RuleResult).filter(RuleResult.submission_id == sub_id).order_by(RuleResult.id.desc()).first()
         rules = (db.query(RuleResult).filter(RuleResult.submission_id == sub_id, RuleResult.run_id == last.run_id)
                  .order_by(RuleResult.id).all()) if last else []
@@ -79,7 +82,7 @@ def show(request: Request, sub_id: int):
         pages = {p.id: p for d in docs for p in d.pages}
         return templates.TemplateResponse(request, "submission.html", {
             "sub": sub, "docs": docs, "logs": logs, "entities": dict(entities), "conflicts": conflicts,
-            "rules": rules, "audits": audits, "field_by_id": field_by_id, "pages": pages,
+            "rules": rules, "audits": audits, "replaced": replaced, "field_by_id": field_by_id, "pages": pages,
             "running": sub.status in ("RECEIVED", "PROCESSING")})
 
 
@@ -94,54 +97,29 @@ def page_image(page_id: int):
 
 @app.post("/fields/{field_id}/override")
 def override_field(field_id: int, value: str = Form(...), reason: str = Form(...)):
-    if not reason.strip():
-        raise HTTPException(400, "a reason is required")
     with SessionLocal() as db:
-        old = db.get(Field, field_id)
-        new = Field(submission_id=old.submission_id, page_id=old.page_id, doc_type=old.doc_type,
-                    entity_type=old.entity_type, entity_key=old.entity_key, name=old.name, value=value.strip(),
-                    excerpt=f"Override by {REVIEWER}: {reason.strip()}", method="human", confidence=1.0,
-                    evidence_verified=True, validation={"human_override": True}, status="OK",
-                    overrides_field_id=old.id)
-        old.status = "SUPERSEDED"
-        db.add(new)
-        audit(db, old.submission_id, REVIEWER, "field.override", f"field:{old.id} {old.entity_key}.{old.name}",
-              before={"value": old.value}, after={"value": new.value}, reason=reason.strip())
-        sub = db.get(Submission, old.submission_id)
-        evaluate(db, sub, actor=REVIEWER)
+        try:
+            sub = review.override_field(db, field_id, value, reason, REVIEWER)
+        except review.ReviewError as exc:
+            raise HTTPException(400, str(exc))
         db.commit()
-        return RedirectResponse(f"/submissions/{old.submission_id}#rules", status_code=303)
+        return RedirectResponse(f"/submissions/{sub.id}#rules", status_code=303)
 
 
 @app.post("/conflicts/{conflict_id}/resolve")
 def resolve_conflict(conflict_id: int, field_id: int = Form(...), reason: str = Form(...)):
-    if not reason.strip():
-        raise HTTPException(400, "a reason is required")
     with SessionLocal() as db:
-        c = db.get(Conflict, conflict_id)
-        chosen = next((v for v in c.values if v["field_id"] == field_id), None)
-        if chosen is None:
-            raise HTTPException(400, "field is not one of the conflict's values")
-        c.status = "RESOLVED"
-        c.resolution = f"Accepted '{chosen['value']}' from {chosen['source']}: {reason.strip()}"
-        audit(db, c.submission_id, REVIEWER, "conflict.resolve", f"conflict:{c.id} {c.entity_key}.{c.field_name}",
-              before={"status": "OPEN"}, after={"accepted": chosen}, reason=reason.strip())
-        # the accepted value becomes the authoritative one for the rules
-        accepted = db.get(Field, field_id)
-        for v in c.values:
-            if v["field_id"] != field_id:
-                other = db.get(Field, v["field_id"])
-                if other and other.entity_key == accepted.entity_key and other.name == accepted.name:
-                    other.status = "SUPERSEDED"
-        sub = db.get(Submission, c.submission_id)
-        evaluate(db, sub, actor=REVIEWER)
+        try:
+            sub = review.resolve_conflict(db, conflict_id, field_id, reason, REVIEWER)
+        except review.ReviewError as exc:
+            raise HTTPException(400, str(exc))
         db.commit()
-        return RedirectResponse(f"/submissions/{c.submission_id}#conflicts", status_code=303)
+        return RedirectResponse(f"/submissions/{sub.id}#conflicts", status_code=303)
 
 
 @app.post("/submissions/{sub_id}/rerun-rules")
 def rerun_rules(sub_id: int):
     with SessionLocal() as db:
-        evaluate(db, db.get(Submission, sub_id), actor=REVIEWER)
+        review.rerun_rules(db, sub_id, REVIEWER)
         db.commit()
     return RedirectResponse(f"/submissions/{sub_id}#rules", status_code=303)

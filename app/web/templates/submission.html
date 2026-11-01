@@ -91,7 +91,7 @@
 
 <div class="card" id="fields">
   <h2>Extracted information (by entity)</h2>
-  <p class="small muted">Each value shows its source excerpt and confidence. Values below 0.85 are flagged for review. Click a page to check the value against the original.</p>
+  <p class="small muted">{% if replaced %}{{ replaced }} values from earlier runs are kept (REPLACED) for audit and hidden here. {% endif %}Each value shows its source excerpt and confidence. Values below 0.85 are flagged for review. Click a page to check the value against the original.</p>
   {% for key, items in entities.items() %}
   <details {% if loop.index < 4 %}open{% endif %}><summary><b>{{ key }}</b> <span class="muted small">({{ items|length }} values)</span></summary>
     <table class="small">
