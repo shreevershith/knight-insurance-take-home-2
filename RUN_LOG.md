@@ -434,3 +434,19 @@ Each body became `email-body.txt`, classified OTHER (0.95, 0.97, 0.95) and skipp
 received it as context. Desert Ridge's `IMG_4471.jpg` was already within limits, so it was used as-is and its saved
 transcription applied. Scores: sample **87/87**, held-out #1 **72/72**, held-out #2 **70/71** (same `mailing_state`
 miss). Cost $0.49 (two new calls each: the body's classification and the analyst).
+
+### Held-out #3: a clean fleet (CL1, 11/01)
+
+Built to test what no set had reached (D-39): a submission that should pass every rule, and Fleet routing. Holston
+Valley Freight Inc (Knoxville, TN), 12 tractors, 12 drivers with clean MVRs, four contiguous clean AL loss runs,
+four IFTA quarters, no deductible, no APD, a commodity list totalling 100%. New formats: the application as a `.docx`
+with tables, an HTML-only email, loose attachments (no zip), the vehicle schedule named `Book1.xlsx`, and a phone
+photo of a CDL saved sideways with an EXIF rotation tag. Expected values (`eval/heldout/holston_expected.json`) were
+written before `scripts/make_heldout3.py` generated the files; run once, in Docker through the queue.
+
+**Result: 69/69 on the first run.** Decision **QUOTE_AFTER_CHECKS** (38 rules PASS, RTE-01 routes to **Fleet**, and
+only PRO-03, PRO-05, SEL-03 open as "check before quoting"), no conflicts, every document classified correctly, and
+the sideways CDL photo turned upright and read (DOB, expiration match the MVR). Cost $0.193 (42 calls, none cached).
+
+Then the AI summaries of the other four submissions, marked out of date by the rules-version change, were
+regenerated (all current).

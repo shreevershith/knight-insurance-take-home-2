@@ -2,8 +2,10 @@
 the predicate functions below compute it from the resolved submission view.
 
 Outcomes: PASS, FLAG (informational), REFER, DECLINE, NOT_EVALUATED (input could not be
-determined; treated as REFER, never as a pass), ERROR (the rule itself crashed; treated as REFER).
-Decision = worst outcome across rules.
+determined from the submission; treated as REFER, never as a pass), VERIFY (needs a lookup outside any
+submission, such as FMCSA SAFER; never a pass, listed as a check before quoting, D-39), ERROR (the rule
+itself crashed; treated as REFER).
+Decision = worst outcome across rules: DECLINE > REFER > QUOTE_AFTER_CHECKS (some VERIFY) > READY_TO_QUOTE.
 
 Two central guards (applied in evaluate, not per rule):
 - DECLINE needs positive evidence: no input fields -> NOT_EVALUATED.
@@ -23,7 +25,8 @@ from app.log import get_logger
 from app.rules.view import SubmissionView
 
 log = get_logger(__name__)
-SEVERITY = {"PASS": 0, "FLAG": 1, "NOT_EVALUATED": 2, "ERROR": 2, "REFER": 2, "DECLINE": 3}
+SEVERITY = {"PASS": 0, "FLAG": 1, "VERIFY": 2, "NOT_EVALUATED": 3, "ERROR": 3, "REFER": 3, "DECLINE": 4}
+UNDETERMINED = ("NOT_EVALUATED", "VERIFY")  # what a rule's "can't tell" means; VERIFY only for outside data
 FAIL_OUTCOMES = {"REFER", "DECLINE", "FLAG"}
 PREDICATES = {}
 REQUIRED_PATTERNS = ("PRO-02", "PRO-06", "PRO-08", "cdl_event", "tractor", "ineligible_vehicle", "box_truck",
@@ -89,6 +92,8 @@ def validate_config(cfg) -> list[str]:
             errors.append(f"{rid}: outcome must be one of {sorted(FAIL_OUTCOMES)}")
         if not spec.get("title"):
             errors.append(f"{rid}: title is required")
+        if spec.get("undetermined", "NOT_EVALUATED") not in UNDETERMINED:
+            errors.append(f"{rid}: undetermined must be one of {list(UNDETERMINED)}")
     return errors
 
 
@@ -410,11 +415,15 @@ def no_lithium(v, cfg):
 @rule("PRO-03")
 def border_proximity(v, cfg):
     cross = v.value("operations", "cross_border")
+    if cross.norm is True:  # crossing into Mexico is operating within 50 miles of the border
+        return Result(False, f"cross-border operations answered '{cross.raw}': operates at the US/Mexico border",
+                      cross.field_ids)
     states, ids = derived.operating_states(v)
     border = sorted(states & set(cfg["patterns"]["border_states"]))
     answer = f"cross-border answered {cross.raw}" if cross.raw else "cross-border not answered"
-    return Result(None, f"Within 50 miles of the US/Mexico border is not determinable ({answer}, which is a "
-                        f"different question; border-state miles: {', '.join(border) or 'none found'})",
+    # not in any submission: needs route or telematics data, so the config makes this VERIFY (D-39)
+    return Result(None, f"Within 50 miles of the US/Mexico border needs route data ({answer}, which only rules out "
+                        f"crossing; border-state miles: {', '.join(border) or 'none found'})",
                   cross.field_ids + ids)
 
 
@@ -497,7 +506,8 @@ def evaluate(db, sub: Submission, actor: str = "system") -> str:
                 if res.outcome and res.outcome.startswith("ROUTE:"):
                     team, outcome = res.outcome.split(":", 1)[1], "FLAG"
                 elif res.passed is None:
-                    outcome = "NOT_EVALUATED"
+                    # VERIFY only where the config says the unknown is data no submission contains
+                    outcome = spec.get("undetermined", "NOT_EVALUATED")
                 elif res.passed:
                     outcome = "PASS"
                 else:
@@ -508,7 +518,8 @@ def evaluate(db, sub: Submission, actor: str = "system") -> str:
                           message=res.message, input_field_ids=res.field_ids))
         if SEVERITY[outcome] > SEVERITY[worst]:
             worst = outcome
-    decision = {"PASS": "READY_TO_QUOTE", "FLAG": "READY_TO_QUOTE", "NOT_EVALUATED": "REFER", "ERROR": "REFER",
+    decision = {"PASS": "READY_TO_QUOTE", "FLAG": "READY_TO_QUOTE", "VERIFY": "QUOTE_AFTER_CHECKS",
+                "NOT_EVALUATED": "REFER", "ERROR": "REFER",
                 "REFER": "REFER", "DECLINE": "DECLINE"}[worst]
     before = {"decision": sub.decision, "team": sub.team, "rules_version": sub.rules_version}
     sub.decision, sub.team, sub.rules_version = decision, team, version

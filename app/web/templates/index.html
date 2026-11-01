@@ -77,7 +77,7 @@
       <span class="when">{{ s.received_at.strftime('%b %d, %H:%M') }}</span>
       <div class="st">
         {% if s.status != 'DONE' %}<span class="pill {{ s.status }}" data-f="status">{{ s.status }}</span>{% endif %}
-        <span data-f="decision">{% if s.decision %}<span class="pill {{ s.decision }}">{{ s.decision }}</span>{% endif %}</span>
+        <span data-f="decision">{% if s.decision %}<span class="pill {{ s.decision }}">{{ s.decision|replace('_', ' ') }}</span>{% endif %}</span>
         {% if s.team %}<span class="small muted" data-f="team">{{ s.team }}</span>{% endif %}
         {% if open_counts.get(s.id) %}<span class="small muted">· {{ open_counts[s.id] }} open conflict{{ "s" if open_counts[s.id] != 1 }}</span>{% endif %}
       </div>

@@ -1,4 +1,5 @@
 {
+  "_changes": "11/01 (D-39): PRO-03, PRO-05 and SEL-03 expected VERIFY, were NOT_EVALUATED. Checks that need data no submission contains are a separate outcome (check before quoting); a design change, not a fix to a miss.",
   "_note": "HELD-OUT set (D-19). A fictitious submission written from scratch on 11/01/2026, AFTER the system was built, and never used to tune it. Expected values were derived by hand from the guideline and from scripts/make_heldout.py BEFORE the first run. Anchor date = application date 10/15/2026. Unlike the sample (a regression check), this measures generalization: new layouts, header names, carriers, an Arizona IFTA format, a phone photo, a scan with abbreviated headers and a corrupt file.",
   "submission_subject": "Desert Ridge Freight",
   "documents": {
@@ -42,9 +43,9 @@
     "SUB-06": "PASS", "SUB-07": "PASS", "SUB-08": "PASS",
     "DRV-01": "PASS", "DRV-02": "PASS", "DRV-03": "PASS", "DRV-04": "PASS", "DRV-05": "PASS",
     "DRV-06": "REFER", "DRV-07": "DECLINE", "DRV-08": "PASS",
-    "PRO-01": "PASS", "PRO-02": "PASS", "PRO-03": "NOT_EVALUATED", "PRO-05": "NOT_EVALUATED",
+    "PRO-01": "PASS", "PRO-02": "PASS", "PRO-03": "VERIFY", "PRO-05": "VERIFY",
     "PRO-06": "PASS", "PRO-07": "PASS", "PRO-08": "PASS",
-    "SEL-01": "PASS", "SEL-02": "REFER", "SEL-03": "NOT_EVALUATED",
+    "SEL-01": "PASS", "SEL-02": "REFER", "SEL-03": "VERIFY",
     "PRI-01": "PASS", "PRI-02": "PASS", "PRI-03": "PASS",
     "CONFLICTS": "REFER", "RTE-01": "FLAG"
   },

@@ -3,12 +3,13 @@
 {% set open_conflicts = conflicts|selectattr('status', 'equalto', 'OPEN')|list %}
 {% set n_fields = entities.values()|map('length')|sum %}
 {% set n_pages = docs|map(attribute='pages')|map('length')|sum %}
-{% set outcome_order = ['DECLINE', 'ERROR', 'REFER', 'NOT_EVALUATED', 'FLAG', 'PASS'] %}
+{% set outcome_order = ['DECLINE', 'ERROR', 'REFER', 'NOT_EVALUATED', 'VERIFY', 'FLAG', 'PASS'] %}
 {% set failing = rules|selectattr('outcome', 'in', ['DECLINE', 'ERROR', 'REFER'])|list %}
 {% set not_eval = rules|selectattr('outcome', 'equalto', 'NOT_EVALUATED')|list %}
+{% set verify = rules|selectattr('outcome', 'equalto', 'VERIFY')|list %}
 {% set passed = rules|selectattr('outcome', 'equalto', 'PASS')|list %}
-{% set todo = failing|length + not_eval|length + open_conflicts|length %}
-{% set headline = {'REFER': 'Refer to underwriter', 'DECLINE': 'Decline', 'READY_TO_QUOTE': 'Ready to quote', 'PASS': 'Ready to quote'} %}
+{% set todo = failing|length + not_eval|length + verify|length + open_conflicts|length %}
+{% set headline = {'REFER': 'Refer to underwriter', 'DECLINE': 'Decline', 'READY_TO_QUOTE': 'Ready to quote', 'QUOTE_AFTER_CHECKS': 'Ready to quote, after checks', 'PASS': 'Ready to quote'} %}
 {% set bad_pages = [] %}{% for d in docs %}{% for p in d.pages if p.status in ('MODEL_ERROR', 'UNREADABLE') %}{% set _ = bad_pages.append((d, p)) %}{% endfor %}{% endfor %}
 {% macro cite(e) -%}
   {%- if e[:1] == 'F' and e[1:].isdigit() and field_by_id.get(e[1:]|int) -%}
@@ -175,6 +176,8 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 .cellbtn:hover { border-color: var(--line-2); background: var(--surface); }
 .cellbtn.lo { color: var(--unk); }
 
+.ai.e-ver { border-left-color: var(--ver); }
+
 /* the agent's email under the sender */
 .mail { margin: -6px 0 18px; }
 .mail > summary { list-style: none; cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: baseline; }
@@ -306,12 +309,13 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   <a href="#sec-audit">Audit</a>
 </nav>
 
-<section class="status st-{{ sub.decision }} {{ 'ready' if sub.decision in ('PASS', 'READY_TO_QUOTE') }}" aria-label="Overall status">
+<section class="status st-{{ sub.decision }} {{ 'ready' if sub.decision in ('PASS', 'READY_TO_QUOTE', 'QUOTE_AFTER_CHECKS') }}" aria-label="Overall status">
   <div class="status-top">
     <div>
       <div class="eyebrow">Overall status · {{ sub.decision or sub.status }}</div>
       <h1>{{ headline.get(sub.decision, 'Not decided') }}</h1>
       {% if sub.team %}<div class="route">Route to <b>{{ sub.team }}</b> underwriting{% if todo %} · {{ todo }} item(s) to review first{% endif %}</div>{% endif %}
+      {% if sub.decision == 'QUOTE_AFTER_CHECKS' %}<div class="route">Before quoting: {{ verify|map(attribute='title')|join('; ') }}</div>{% endif %}
     </div>
     <div class="who-r">{{ company or 'Applicant name not confirmed' }}</div>
   </div>
@@ -321,8 +325,9 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
     <a class="cell f {{ 'zero' if not failing }}" href="#sec-review"><div class="lbl2">Rules failed</div>
       <div class="num"><b>{{ failing|length }}</b><span>{{ 'Decline' if failing|selectattr('outcome', 'equalto', 'DECLINE')|list else 'Refer' }}</span></div>
       <div class="ex">{{ failing|map(attribute='rule_id')|join(', ') or 'None' }}</div></a>
-    <a class="cell g {{ 'zero' if not not_eval }}" href="#sec-review"><div class="lbl2">Couldn't be checked</div>
-      <div class="num"><b>{{ not_eval|length }}</b><span>Unknown</span></div><div class="ex">{{ not_eval|map(attribute='rule_id')|join(', ') or 'None' }}</div></a>
+    <a class="cell g {{ 'zero' if not (not_eval or verify) }}" href="#sec-review"><div class="lbl2">Couldn't be checked</div>
+      <div class="num"><b>{{ not_eval|length + verify|length }}</b><span>{{ 'Unknown' if not_eval else 'Verify' }}</span></div>
+      <div class="ex">{{ not_eval|map(attribute='rule_id')|join(', ') }}{% if not_eval and verify %} · {% endif %}{% if verify %}verify before quoting: {{ verify|map(attribute='rule_id')|join(', ') }}{% endif %}{% if not not_eval and not verify %}None{% endif %}</div></a>
     <a class="cell u {{ 'zero' if not open_conflicts }}" href="#sec-conflicts"><div class="lbl2">Open conflicts</div>
       <div class="num"><b>{{ open_conflicts|length }}</b><span>of {{ conflicts|length }}</span></div><div class="ex">Documents that disagree</div></a>
   </div>
@@ -341,6 +346,10 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
       <div><div class="t"><span class="f">{{ label_for(c.entity_key, names) }}</span>: {{ c.field_name|replace('_', ' ') }}</div>
         <div class="r">{{ c['values']|map(attribute='value')|unique|join('  vs  ') }}</div></div>
       <a class="btn sm" href="#C{{ c.id }}">Resolve</a></li>{% endfor %}
+    {% for r in verify %}<li class="ai e-ver">
+      <div><span class="pill VERIFY">Check before quoting</span></div>
+      <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r">{{ r.rule_id }} · {{ r.message }}</div></div>
+      <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
     {% for r in not_eval %}<li class="ai e-unk">
       <div><span class="pill NOT_EVALUATED">Unknown</span></div>
       <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r">{{ r.rule_id }} · {{ r.message.split(' | OK: ')[0] }}</div></div>

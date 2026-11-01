@@ -137,3 +137,19 @@ def test_explicit_no_to_towing_passes_even_with_an_incomplete_commodity_list(db)
     rows[-2] = ("APPLICATION", "commodity:c:0", "commodity", "Wrecker / towing services")
     r, _ = _evaluate(db, rows)
     assert r["PRO-06"].outcome == "DECLINE"   # a towing commodity outweighs the No
+
+
+def test_outside_data_checks_verify_and_a_cross_border_yes_declines(db):
+    r, s = _evaluate(db, APP + [("APPLICATION", "operations", "cross_border", "no")])
+    assert r["PRO-03"].outcome == "VERIFY" and r["PRO-05"].outcome == "VERIFY" and r["SEL-03"].outcome == "VERIFY"
+    r, s = _evaluate(db, APP + [("APPLICATION", "operations", "cross_border", "yes")])
+    assert r["PRO-03"].outcome == "DECLINE" and s.decision == "DECLINE"
+
+
+def test_verify_alone_gives_quote_after_checks_but_any_unknown_still_refers():
+    from app.rules.engine import SEVERITY
+    assert SEVERITY["FLAG"] < SEVERITY["VERIFY"] < SEVERITY["NOT_EVALUATED"] == SEVERITY["REFER"] < SEVERITY["DECLINE"]
+    cfg = engine.load_config()
+    bad = {**{k: v for k, v in cfg.items() if not k.startswith("_")},
+           "rules": cfg["rules"] + [{"id": "X-01", "title": "x", "outcome": "REFER", "undetermined": "PASS"}]}
+    assert any("X-01: undetermined must be one of" in e for e in engine.validate_config(bad))  # can't turn unknown into a pass

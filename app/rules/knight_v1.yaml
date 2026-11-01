@@ -194,10 +194,12 @@ rules:
     title: No operations within 50 miles of the US/Mexico border
     clause: "Prohibited exposures: operations within 50 miles of the USA/Mexico border"
     outcome: DECLINE
+    undetermined: VERIFY   # D-39: needs route data no submission has; a "yes" to cross-border still declines
   - id: PRO-05
     title: No serious SAFER violations
     clause: "Prohibited exposures: serious SAFER violations"
     outcome: DECLINE
+    undetermined: VERIFY   # D-39: an FMCSA SAFER lookup on the DOT number, done before quoting
   - id: PRO-06
     title: No towing / recovery
     clause: "Prohibited exposures: towing/recovery"
@@ -223,6 +225,7 @@ rules:
     title: Under $13,000 per power unit needs 20+ power units
     clause: "accounts seeking less than $13,000 per power unit must have at least 20 power units"
     outcome: REFER
+    undetermined: VERIFY   # D-39: the premium exists only after rating; checked at quoting
   # ---- prior insurance
   - id: PRI-01
     title: Continuous commercial auto coverage for the last 3 years

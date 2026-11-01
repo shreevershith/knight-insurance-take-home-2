@@ -132,7 +132,7 @@ def test_prohibited_exposures_decidable_vs_not(sub):
     assert r["PRO-01"].outcome == "PASS" and r["PRO-07"].outcome == "PASS"
     assert r["PRO-02"].outcome == "PASS" and r["PRO-08"].outcome == "PASS"   # list complete: 50+30+20 = 100%
     assert "100%" in r["PRO-02"].message and len(r["PRO-02"].input_field_ids) == 6  # cites names and shares
-    assert r["PRO-03"].outcome == "NOT_EVALUATED" and r["PRO-05"].outcome == "NOT_EVALUATED"
+    assert r["PRO-03"].outcome == "VERIFY" and r["PRO-05"].outcome == "VERIFY"   # D-39: outside data, check before quoting
 
 
 def test_commodity_pass_needs_a_complete_list(sub):

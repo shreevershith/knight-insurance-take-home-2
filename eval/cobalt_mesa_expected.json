@@ -1,4 +1,5 @@
 {
+  "_changes": "11/01 (D-39): PRO-03, PRO-05 and SEL-03 expected VERIFY, were NOT_EVALUATED. Checks that need data no submission contains are a separate outcome (check before quoting); a design change, not a fix to a miss.",
   "_note": "Hand-checked expected values for the Cobalt Mesa sample (PLAN.md 3.2, DECISIONS D-26..D-30). Built against the same sample the system is built on, so this is a REGRESSION check, not an accuracy measure (D-19). Anchor date = application date 10/22/2026.",
   "fields": [
     {
@@ -184,8 +185,8 @@
     "ST-04": "REFER",
     "PRO-01": "PASS",
     "PRO-02": "PASS",
-    "PRO-03": "NOT_EVALUATED",
-    "PRO-05": "NOT_EVALUATED",
+    "PRO-03": "VERIFY",
+    "PRO-05": "VERIFY",
     "PRO-06": "PASS",
     "PRO-07": "PASS",
     "PRO-08": "PASS",
@@ -214,7 +215,7 @@
     "DRV-08": "PASS",
     "SEL-01": "PASS",
     "SEL-02": "PASS",
-    "SEL-03": "NOT_EVALUATED",
+    "SEL-03": "VERIFY",
     "PRI-01": "REFER",
     "PRI-02": "REFER",
     "PRI-03": "REFER"

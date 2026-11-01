@@ -1,0 +1,69 @@
+{
+  "_note": "HELD-OUT set #3 (D-39), written by hand on 11/01/2026 BEFORE the submission was generated or run: this file is the measurement's answer key. A CLEAN account built to test the paths no earlier set reached: QUOTE_AFTER_CHECKS (every rule passes except the three that need outside data, which VERIFY) and Fleet routing (12 power units). Also new: the application as a .docx, an HTML-only email, attachments sent loose (no zip), a misleadingly named vehicle sheet (Book1.xlsx), and a sideways phone photo of a CDL (EXIF rotation). Anchor date = application date 10/05/2026.",
+  "submission_subject": "Holston Valley",
+  "documents": {
+    "Holston Valley - Application.docx": "OK",
+    "IMG_20260921_142233.jpg": "OK"
+  },
+  "pages": {
+    "Holston Valley - Application.docx": "APPLICATION",
+    "Drivers.xlsx": "DRIVER_SCHEDULE",
+    "Book1.xlsx": "VEHICLE_SCHEDULE",
+    "MVRs.pdf": "MVR",
+    "LossRuns_2022-2026.pdf": "LOSS_RUN",
+    "IFTA_returns.pdf": "IFTA_RETURN",
+    "IMG_20260921_142233.jpg": "DRIVER_LICENSE"
+  },
+  "fields": [
+    {"entity": "applicant", "field": "business_name", "expect": "HOLSTON VALLEY FREIGHT INC"},
+    {"entity": "applicant", "field": "fein", "expect": "47-2219086"},
+    {"entity": "applicant", "field": "dot_number", "expect": "3388104"},
+    {"entity": "applicant", "field": "mc_number", "expect": "1187365"},
+    {"entity": "applicant", "field": "application_date", "expect": "2026-10-05"},
+    {"entity": "coverage", "field": "apd_requested", "expect": false},
+    {"entity": "coverage", "field": "al_deductible", "expect": "None", "match": "contains:NONE"},
+    {"entity": "driver:112204871", "field": "dob", "doc_types": ["DRIVER_LICENSE"], "expect": "1979-04-09", "why": "read from the sideways phone photo"},
+    {"entity": "driver:112204871", "field": "license_expiration", "doc_types": ["DRIVER_LICENSE"], "expect": "2029-04-09"},
+    {"entity": "loss_run:AL:SRC5520317", "field": "total_incurred", "expect": 0},
+    {"entity": "ifta:2025-09-30", "field": "total_miles", "expect": 289800},
+    {"entity": "ifta:2025-12-31", "field": "total_miles", "expect": 276000},
+    {"entity": "ifta:2026-03-31", "field": "total_miles", "expect": 294400},
+    {"entity": "ifta:2026-06-30", "field": "total_miles", "expect": 303600}
+  ],
+  "derived": {
+    "cdl_years": {"WHITAKER": 17.3, "OKONKWO": 11.2}
+  },
+  "rules": {
+    "APP-01": "PASS", "APP-02": "PASS", "APP-03": "PASS",
+    "COV-01": "PASS", "COV-02": "PASS", "NV-01": "PASS", "NV-02": "PASS",
+    "ST-01": "PASS", "ST-02": "PASS", "ST-03": "PASS", "ST-04": "PASS",
+    "SUB-01": "PASS", "SUB-02": "PASS", "SUB-03": "PASS", "SUB-04": "PASS", "SUB-05": "PASS",
+    "SUB-06": "PASS", "SUB-07": "PASS", "SUB-08": "PASS",
+    "DRV-01": "PASS", "DRV-02": "PASS", "DRV-03": "PASS", "DRV-04": "PASS", "DRV-05": "PASS",
+    "DRV-06": "PASS", "DRV-07": "PASS", "DRV-08": "PASS",
+    "PRO-01": "PASS", "PRO-02": "PASS", "PRO-03": "VERIFY", "PRO-05": "VERIFY",
+    "PRO-06": "PASS", "PRO-07": "PASS", "PRO-08": "PASS",
+    "SEL-01": "PASS", "SEL-02": "PASS", "SEL-03": "VERIFY",
+    "PRI-01": "PASS", "PRI-02": "PASS", "PRI-03": "PASS",
+    "CONFLICTS": "PASS", "RTE-01": "FLAG"
+  },
+  "rules_why": {
+    "COV-01": "AL deductible: None",
+    "COV-02": "APD quote requested: No",
+    "NV-01": "9 years in business, not a new venture",
+    "ST-04": "IFTA miles only in TN, VA, WV, SC, AL, AR: all available states",
+    "SUB-03": "all four loss runs valued 09/24/2026, 11 days before the application",
+    "SUB-04": "expiring 11/01/2025-11/01/2026 plus 3 prior AL terms",
+    "SUB-05": "Q3 2025 - Q2 2026, the four quarters due by 10/05/2026",
+    "SUB-07": "all 12 MVRs ordered 09/22/2026 (13 days)",
+    "PRO-02": "commodities 40 + 35 + 25 = 100%: complete, none prohibited",
+    "PRO-03": "no cross-border, no border-state miles: still needs route data -> VERIFY",
+    "PRO-05": "SAFER lookup on DOT 3388104 -> VERIFY",
+    "SEL-03": "12 units < 20: premium checked at quoting -> VERIFY",
+    "PRI-01": "continuous 11/01/2022 - 11/01/2026",
+    "RTE-01": "12 power units -> Fleet"
+  },
+  "decision": "QUOTE_AFTER_CHECKS",
+  "team": "Fleet",
+  "conflicts": []
+}

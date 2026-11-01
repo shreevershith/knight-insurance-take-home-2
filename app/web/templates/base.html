@@ -12,7 +12,7 @@
   --line: #e4e0d6; --line-2: #d6d1c4; --hover: #f2eee5;
   --pass: #15803d; --pass-bg: #f0fdf4; --pass-ln: #bbf7d0; --flag: #b91c1c; --flag-bg: #fef2f2; --flag-ln: #fecaca;
   --unk: #b45309; --unk-bg: #fffbeb; --unk-ln: #fde68a; --gray: #57554f; --gray-bg: #efece4; --gray-ln: #ddd8cc;
-  --ovr: #6b21a8; --ovr-bg: #faf5ff; --ovr-ln: #e9d5ff; --r: 3px; --ease: cubic-bezier(.2, .7, .2, 1);
+  --ovr: #6b21a8; --ovr-bg: #faf5ff; --ovr-ln: #e9d5ff; --ver: #1d4ed8; --ver-bg: #eff6ff; --ver-ln: #bfdbfe; --r: 3px; --ease: cubic-bezier(.2, .7, .2, 1);
   --serif: "Iowan Old Style", "Charter", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
   --sans: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", "SFMono-Regular", Consolas, Menlo, monospace;
@@ -94,13 +94,14 @@ input[type=text]:focus, input[type=search]:focus, textarea:focus, select:focus {
         font: 600 11px/1.5 var(--sans); letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; color: var(--gray); background: var(--gray-bg); }
 .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill.plain::before { display: none; }
-.PASS, .OK, .RESOLVED, .DONE, .READY_TO_QUOTE { color: var(--pass); background: var(--pass-bg); border-color: var(--pass-ln); }
+.PASS, .OK, .RESOLVED, .DONE, .READY_TO_QUOTE, .QUOTE_AFTER_CHECKS { color: var(--pass); background: var(--pass-bg); border-color: var(--pass-ln); }
 .DECLINE, .ERROR, .MODEL_ERROR, .UNREADABLE, .FAILED, .INTERRUPTED, .high { color: var(--flag); background: var(--flag-bg); border-color: var(--flag-ln); }
 .REFER, .LOW_CONFIDENCE, .OPEN, .CONFLICT, .medium { color: var(--unk); background: var(--unk-bg); border-color: var(--unk-ln); }
 .FLAG, .NOT_EVALUATED, .UNCLASSIFIED, .UNSUPPORTED, .SKIPPED, .SUPERSEDED, .DUPLICATE, .CONTAINER, .PENDING, .low, .neutral { color: var(--gray); background: var(--gray-bg); border-color: var(--gray-ln); }
 .PROCESSING, .RECEIVED, .QUEUED, .RUNNING { color: var(--ink-2); background: var(--surface); border-color: var(--line-2); }
 .PROCESSING::before, .RECEIVED::before, .QUEUED::before, .RUNNING::before { animation: blink 1.2s ease-in-out infinite; }
 .human, .OVERRIDE { color: var(--ovr); background: var(--ovr-bg); border-color: var(--ovr-ln); }
+.VERIFY { color: var(--ver); background: var(--ver-bg); border-color: var(--ver-ln); }  /* outside lookup before quoting (D-39) */
 @keyframes blink { 50% { opacity: .25; } }
 
 /* ---------- sections ---------- */
