@@ -357,3 +357,9 @@ HO2), and the only new call was the AI analyst on Opus. No escalations fired: th
 LOW_CONFIDENCE to OK. No page came back empty. So the run confirms the fixed code runs cleanly on real input, but this
 submission doesn't trigger the IFTA re-read, empty-page escalation or same-term policy cases; those stay covered by
 `tests/test_review_fixes.py` only.
+
+### AI summaries regenerated (CR3, 11/01)
+
+The rules-version change from the review fixes marked two AI summaries out of date (the decisions didn't change). The
+analyst was re-run on Opus for the sample (#7, $0.209) and held-out #2 (#6, $0.113): **$0.32 total**. Both are current
+(no error, no out-of-date flag); sample 87/87, held-out #2 69/70.
