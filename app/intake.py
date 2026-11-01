@@ -8,6 +8,7 @@ import hashlib
 import io
 import mimetypes
 import zipfile
+from html.parser import HTMLParser
 from xml.etree import ElementTree
 from email import policy
 from pathlib import Path, PurePosixPath
@@ -15,6 +16,7 @@ from pathlib import Path, PurePosixPath
 import openpyxl
 import pdfplumber
 import pypdfium2 as pdfium
+from PIL import Image, ImageOps
 
 from app.config import BLOB_DIR, PAGE_DIR, data_path, stored_path
 from app.db import Document, Page, Submission, audit
@@ -53,6 +55,10 @@ def ingest_eml(db, raw: bytes) -> Submission:
 
     seen: dict[str, Document] = {}
     count = 0
+    body = email_body(msg)
+    if body:
+        # what the agent typed is part of the submission: read and classified like any text page
+        _add_file(db, sub, EMAIL_BODY_NAME, body.encode("utf-8"), "text/plain", None, seen, depth=0)
     for part in msg.iter_attachments():
         filename = part.get_filename() or "attachment.bin"
         data = part.get_payload(decode=True) or b""
@@ -60,6 +66,36 @@ def ingest_eml(db, raw: bytes) -> Submission:
         count += 1
     log.info("email ingested", submission_id=sub.id, attachments=count)
     return sub
+
+
+EMAIL_BODY_NAME = "email-body.txt"
+
+
+class _HTMLText(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("br", "p", "div", "tr", "li"):
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        self.parts.append(data)
+
+
+def email_body(msg) -> str:
+    """The text the agent typed: the plain-text part, else the HTML part as text. Empty if neither."""
+    part = msg.get_body(preferencelist=("plain", "html"))
+    if part is None:
+        return ""
+    content = part.get_content()
+    if part.get_content_type() == "text/html":
+        parser = _HTMLText()
+        parser.feed(content)
+        content = "".join(parser.parts)
+    lines = [line.rstrip() for line in content.replace("\r\n", "\n").split("\n")]
+    return "\n".join(lines).strip()
 
 
 def ingest_files(db, files: list[tuple[str, bytes]], sender: str = "", subject: str = "") -> Submission:
@@ -117,7 +153,7 @@ def _unpack_zip(db, sub, doc, data, seen, depth):
 
 
 def split_pages(db, doc: Document) -> None:
-    """Create Page rows: PDF pages, XLSX sheets, or a single image page."""
+    """Create Page rows: PDF pages, XLSX sheets, a Word or text document, or a single image page."""
     if doc.status != "OK":
         return
     path = data_path(doc.blob_path)
@@ -129,8 +165,11 @@ def split_pages(db, doc: Document) -> None:
             _split_xlsx(db, doc, path)
         elif suffix == ".docx":
             _split_docx(db, doc, path)
+        elif suffix == ".txt":
+            text = path.read_text(encoding="utf-8", errors="replace").strip()
+            db.add(Page(document_id=doc.id, page_no=1, has_text_layer=bool(text), text=text, text_source="text_layer"))
         elif suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
-            db.add(Page(document_id=doc.id, page_no=1, image_path=stored_path(path), has_text_layer=False))
+            db.add(Page(document_id=doc.id, page_no=1, image_path=stored_path(_page_image(doc, path)), has_text_layer=False))
         else:
             doc.status, doc.error = "UNSUPPORTED", f"unsupported file type {suffix or doc.media_type}"
     except Exception as exc:  # corrupt file: explicit state, never a guess
@@ -150,6 +189,25 @@ def _split_pdf(db, doc, path):
             db.add(Page(document_id=doc.id, page_no=i + 1, has_text_layer=has_text,
                         text=text if has_text else "", text_source="text_layer" if has_text else "",
                         image_path=stored_path(image_path)))
+
+
+MAX_IMAGE_EDGE = 2000           # px: phone photos are ~4000; the model reads 2000 fine, and the API caps size
+MAX_IMAGE_BYTES = 3_500_000      # under the API's 5 MB image limit once base64-encoded
+
+
+def _page_image(doc, path: Path) -> Path:
+    """The image the model and the UI see. A photo that is already upright, small and light is used as-is
+    (same bytes, so earlier runs' cached reads still apply). Otherwise: turned upright from its EXIF
+    orientation (phones store rotation separately from the pixels) and scaled to MAX_IMAGE_EDGE."""
+    with Image.open(path) as im:
+        rotated = (im.getexif().get(0x0112, 1) or 1) != 1   # EXIF Orientation tag
+        if not rotated and max(im.size) <= MAX_IMAGE_EDGE and path.stat().st_size <= MAX_IMAGE_BYTES:
+            return path
+        im = ImageOps.exif_transpose(im)
+        im.thumbnail((MAX_IMAGE_EDGE, MAX_IMAGE_EDGE))
+        out = PAGE_DIR / f"{doc.sha256}_p1.jpg"
+        im.convert("RGB").save(out, "JPEG", quality=90)
+        return out
 
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"

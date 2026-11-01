@@ -175,6 +175,14 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 .cellbtn:hover { border-color: var(--line-2); background: var(--surface); }
 .cellbtn.lo { color: var(--unk); }
 
+/* the agent's email under the sender */
+.mail { margin: -6px 0 18px; }
+.mail > summary { list-style: none; cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: baseline; }
+.mail > summary::-webkit-details-marker { display: none; }
+.mail[open] > summary .chev { transform: rotate(90deg); }
+.mail-body { white-space: pre-wrap; margin-top: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.6; color: var(--ink-2);
+             background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r); box-shadow: var(--sh-1); }
+
 /* ================= polish layer (this page) ================= */
 /* tab bar: glass, with an underline that grows under the hovered or current tab */
 .subnav { background: var(--glass); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
@@ -233,6 +241,10 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 <div class="eyebrow">Submission #{{ sub.id }}</div>
 <h2>{{ company or sub.subject }}</h2>
 <div class="meta">From {{ sub.sender }}<br>Received {{ sub.received_at.strftime('%b %d, %Y %H:%M') }}</div>
+{% if agent_email %}<details class="mail">
+  <summary><span class="chev">›</span> Agent's email</summary>
+  <div class="mail-body">{{ agent_email }}</div>
+</details>{% endif %}
 <div class="eyebrow">Files in the packet</div>
 <ul class="files">
   {% for d in docs %}

@@ -426,3 +426,11 @@ to extract), PRI-03 REFER again.
 All three re-run in Docker through the queue (2 workers): sample **87/87**, held-out #1 **72/72**, held-out #2
 **70/71** (the remaining miss is the `mailing_state` field, as before). Cost $0.48 for the three: the text-classification
 calls were new because the prompt changed (Haiku), the scans reused their saved transcriptions, plus the analyst.
+
+### Email body and photos (ML1, 11/01)
+
+The three emails uploaded fresh to the Docker app (the body is read at intake, so older submissions don't have it).
+Each body became `email-body.txt`, classified OTHER (0.95, 0.97, 0.95) and skipped for extraction; the analyst
+received it as context. Desert Ridge's `IMG_4471.jpg` was already within limits, so it was used as-is and its saved
+transcription applied. Scores: sample **87/87**, held-out #1 **72/72**, held-out #2 **70/71** (same `mailing_state`
+miss). Cost $0.49 (two new calls each: the body's classification and the analyst).

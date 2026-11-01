@@ -10,8 +10,9 @@ decision, the reasons, and an AI-written summary they can check.
 
 ## What it does
 
-- **Intake:** an `.eml` (or loose files): PDF, XLSX, Word (`.docx`), images, zips. Zips are unpacked, duplicates
-  caught by hash, anything else flagged UNSUPPORTED with the reason.
+- **Intake:** an `.eml` (or loose files): the email body itself, PDF, XLSX, Word (`.docx`), text, images (phone photos
+  turned upright and sized for the model), zips. Zips are unpacked, duplicates caught by hash, anything else
+  (TIFF, HEIC, `.doc`, `.msg`) flagged UNSUPPORTED with the reason.
 - **Classification by content, not file name.** `scan001.pdf` that is really a loss run is read as a loss run.
 - **Extraction with evidence.** Each value keeps its excerpt, source page and a confidence. Code checks that the
   excerpt is really on the page and contains the value. Scans and photos are transcribed first, then read the same way.
@@ -61,7 +62,7 @@ cost ledger are shared with local runs. `APP_PORT` picks another host port.
 ## Tests and evaluation
 
 ```bash
-.venv/Scripts/python -m pytest -q                                           # 75 tests, no API calls
+.venv/Scripts/python -m pytest -q                                           # 78 tests, no API calls
 .venv/Scripts/python eval/run_eval.py                                       # the case-study sample
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/desert_ridge_expected.json
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/bluestem_expected.json
@@ -110,7 +111,7 @@ email ─► intake (zip, dedupe) ─► pages ─► classify (rules first, mod
 | `app/web/` | FastAPI app and templates |
 | `eval/` | Expected values, the eval runner, held-out submissions |
 | `PLAN.md` | Requirements checklist, the guideline as rules, ground truth, architecture, a claims check against the code |
-| `DECISIONS.md` | Every decision: what the spec said, the options, what was chosen and why (D-01 to D-37) |
+| `DECISIONS.md` | Every decision: what the spec said, the options, what was chosen and why (D-01 to D-38) |
 | `RUN_LOG.md` | Every real model run, its cost and eval score, and what changed because of it |
 
 ## Known limitations

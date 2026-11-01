@@ -18,6 +18,7 @@ from app.config import data_path
 from app.web.labels import entity_labels, label_for
 from app.db import (AuditEvent, Conflict, Document, Field, Job, JobLog, Page, RuleResult, SessionLocal, Submission,
                     audit, init_db, utcnow)
+from app.analyst import agent_email
 from app.intake import ingest_eml, ingest_files
 from app.log import setup_logging
 
@@ -269,6 +270,7 @@ def show(request: Request, sub_id: int):
             "company": next((f.value for f in sorted(fields, key=lambda f: f.method != "human")
                              if f.entity_key == "applicant" and f.name == "business_name"
                              and f.status in ("OK", "LOW_CONFIDENCE")), ""),
+            "agent_email": agent_email(db, sub_id),
             "toast": request.query_params.get("ok", "")})
 
 

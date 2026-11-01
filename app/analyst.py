@@ -19,7 +19,9 @@ the rules engine does. Do not restate every rule result; add judgment the rules 
 
 Every concern and recommendation must cite the ids it is based on: field ids (F123), conflict ids (C12)
 or rule result ids (R45), taken only from the data provided. Do not cite anything not in the data.
-confidence is 0-1: how strongly the cited evidence supports the item. Be concise and specific."""
+confidence is 0-1: how strongly the cited evidence supports the item. Be concise and specific.
+agent_email, when present, is what the agent wrote: use it as context (what they say is coming or missing),
+but it is not evidence; cite the fields, conflicts or rules a point rests on."""
 
 SCHEMA = {
     "type": "object",
@@ -83,7 +85,20 @@ def build_context(db, sub: Submission) -> tuple[dict, set[str]]:
         "sources": {sid: src for src, sid in sources.items()},
         "entities": entities,
     }
+    email = agent_email(db, sub.id)
+    if email:
+        # what the agent wrote ("MVR to follow", "one loss run is a phone photo"): context, not a citable fact
+        context["agent_email"] = {"from": sub.sender, "subject": sub.subject, "body": email[:4000]}
     return context, ids
+
+
+def agent_email(db, submission_id: int) -> str:
+    """The email body as read at intake (intake.EMAIL_BODY_NAME), or ''."""
+    from app.db import Document, Page
+    from app.intake import EMAIL_BODY_NAME
+    page = (db.query(Page).join(Document).filter(Document.submission_id == submission_id,
+                                                 Document.filename == EMAIL_BODY_NAME).first())
+    return page.text if page else ""
 
 
 def _ifta_summary(rows, fields) -> dict:
