@@ -124,6 +124,9 @@ def show(request: Request, sub_id: int):
             "rules": rules, "audits": audits, "replaced": replaced, "field_by_id": field_by_id, "pages": pages,
             "running": sub.status in ("RECEIVED", "PROCESSING"), "stages": STAGES, "stage": _stage(logs),
             "low_confidence": sum(f.status == "LOW_CONFIDENCE" for f in fields),
+            "company": next((f.value for f in sorted(fields, key=lambda f: f.method != "human")
+                             if f.entity_key == "applicant" and f.name == "business_name"
+                             and f.status in ("OK", "LOW_CONFIDENCE")), ""),
             "toast": request.query_params.get("ok", "")})
 
 

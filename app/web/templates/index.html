@@ -2,27 +2,28 @@
 {% block head %}
 <style>
   .intro { display:grid; grid-template-columns: 1.2fr 1fr; gap:16px; align-items:stretch; margin-top:4px; }
-  .intro h1 { font-size:26px; }
-  .lede { color:var(--ink-2); max-width:58ch; margin:6px 0 14px; }
+  .intro h1 { font-size:40px; }
+  .intro .caps { display:block; margin-bottom:6px; }
+  .lede { font:400 17px/1.55 var(--serif); color:var(--ink-2); max-width:60ch; margin:8px 0 16px; }
   .flow { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12px; color:var(--muted); }
-  .flow span { background:var(--surface); border:1px solid var(--line); padding:3px 9px; border-radius:999px; color:var(--ink-2); }
+  .flow span { background:var(--surface); border:1px solid var(--line); padding:3px 8px; color:var(--ink-2); font:400 11px/1.4 var(--mono); }
   .flow i { font-style:normal; opacity:.6; }
   .drop { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; text-align:center;
-          min-height:190px; border:1.5px dashed var(--line-strong); border-radius:var(--radius); background:var(--surface);
+          min-height:190px; border:1px dashed var(--line-strong); background:var(--surface);
           padding:22px; cursor:pointer; transition:border-color .2s, background .25s, transform .25s var(--ease), box-shadow .25s; }
   .drop:hover { border-color:var(--accent-2); box-shadow:var(--shadow-2); }
   .drop.over { border-color:var(--accent-2); background:color-mix(in srgb, var(--accent-2) 7%, var(--surface)); transform:scale(1.01); }
   .drop input { position:absolute; inset:0; opacity:0; cursor:pointer; }
-  .drop .glyph { width:44px; height:44px; border-radius:12px; display:grid; place-items:center; font-size:20px;
-                 background:color-mix(in srgb, var(--accent-2) 12%, transparent); color:var(--accent-2); transition:transform .3s var(--ease); }
+  .drop .glyph { width:40px; height:40px; display:grid; place-items:center; font-size:18px; border:1px solid var(--line-strong);
+                 background:var(--bg); color:var(--ink-2); transition:transform .3s var(--ease); }
   .drop.over .glyph { transform:translateY(-4px) scale(1.06); }
   .drop .files { font-size:12px; color:var(--ink-2); }
   .drop-actions { display:flex; gap:8px; align-items:center; justify-content:space-between; margin-top:10px; flex-wrap:wrap; }
   .routing { display:flex; gap:6px; flex-wrap:wrap; font-size:12px; }
-  .routing span { background:var(--sunken); padding:2px 8px; border-radius:6px; color:var(--ink-2); }
+  .routing span { background:var(--sunken); border:1px solid var(--line); padding:2px 7px; color:var(--ink-2); font:400 11px/1.5 var(--mono); }
   .routing b { font-weight:600; color:var(--muted); margin-right:4px; }
   .sub-row td:first-child { width:56px; }
-  .sub-row .subject { font-weight:600; color:var(--ink); }
+  .sub-row .subject { font-weight:500; color:var(--ink); }
   .sub-row .subject:hover { color:var(--accent-2); }
   .step-note { display:block; color:var(--muted); font-size:12px; margin-top:2px; max-width:42ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .empty { padding:28px; text-align:center; color:var(--muted); }
@@ -33,6 +34,7 @@
 {% block body %}
 <section class="intro">
   <div class="rise" style="--i:0">
+    <span class="caps">Knight Specialty · Commercial Auto</span>
     <h1>Submission intake</h1>
     <p class="lede">Drop an agent's email. Attachments and zips are unpacked, every page is classified by content, values are
       extracted with the evidence that supports them, and the Trucking Program guideline is applied by deterministic rules.</p>
@@ -59,7 +61,7 @@
 </section>
 
 <section class="card rise" style="--i:2">
-  <div class="card-head"><h2>Submissions</h2><span class="count">{{ subs|length }}</span></div>
+  <div class="card-head"><h2>Submissions</h2><span class="count">{{ subs|length }} received</span></div>
   <div class="table-wrap">
   <table>
     <thead><tr><th>#</th><th>Submission</th><th class="hide-sm">Received</th><th>Status</th><th>Decision</th><th class="hide-sm">Route to</th></tr></thead>
