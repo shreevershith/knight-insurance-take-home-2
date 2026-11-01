@@ -71,3 +71,20 @@ def test_continuation_page_is_extracted_as_the_document_it_continues():
     _inherit_continuations(sub)
     assert table.doc_type == "IFTA_RETURN"      # rows + total get extracted
     assert trailer.doc_type == "CONTINUATION"   # nothing to extract on a report trailer
+
+
+def test_ifta_parser_tolerates_layout_variants_between_models():
+    # seen in real transcripts: Sonnet pipes key/value lines, Haiku labels the total row "Totals"
+    ctx = {"doc_id": 1, "ifta_period": "2026-03-31"}
+    parse_ifta_page(PAGE_2, ctx)
+    page = ("Account Number: | 247-918305\nFiling Period: | March 31, 2026\n"
+            "Texas | 2. Diesel | 841 | 841 | 6.05 | 139 | 1,220 | -1,081 | 0.2000 | -$216.20 | $0.00 | -$216.20\n"
+            "Totals | | 2,948 | 2,948 | | 761 | 1,299 | 0 | | $3,464.20 | $134.80 | $3,599.00")
+    facts = parse_ifta_page(page, ctx)
+    assert [f["value"] for f in facts if f["entity_type"] == "ifta"] == ["2,948"]
+    assert sum(f["entity_type"] == "ifta_row" and f["field"] == "jurisdiction" for f in facts) == 1
+
+
+def test_ifta_parser_declines_a_page_run_together_on_one_line():
+    one_line = " | ".join(PAGE_2.splitlines())  # Haiku once returned a whole page as one line
+    assert parse_ifta_page(one_line, {"doc_id": 1}) is None

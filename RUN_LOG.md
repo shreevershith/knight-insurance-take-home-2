@@ -18,6 +18,7 @@ Raw outputs of each experiment are in `eval/experiments/`.
 | E2 | 11/01 04:10 | `07dea67` | **Sonnet 5.5** medium for classify/transcribe/extract + escalation | 39 | 258 s | **$0.85** | 61/61 | Clean on the eval, but 4 of 6 loss runs lacked their line of business (found in r2) |
 | E3 | 11/01 04:14 | `07dea67` | **Haiku 5.5** medium for classify/transcribe/extract + escalation | 40 | 280 s | **$0.26** | 60/61 | AL 24-25 loss run keyed `loss_run:?:…` (line of business not extracted) |
 | r2 ×4 | 11/01 04:21–04:24 | `6a0b334` | E0–E3 again after the three fixes below (pages from cache) | 1 each | ~60 s | $0.20–0.22 each | **63/63 all four** | Fixes hold. Sonnet and Haiku each escalated 4 loss runs to Opus |
+| **M1** | 11/01 04:36 | this commit | **Per-task mix:** classify Haiku · transcribe **Sonnet** · extract Haiku (→ Opus on failed check) · analyst Opus. **Empty cache: every call measured** | 41 (5 escalated) | 300 s | **$0.62** | **63/63** | Recommended default. 7/7 IFTA tables parsed in code |
 
 ## Run 1: first real run (baseline)
 
@@ -163,3 +164,59 @@ After the fixes, all four variants scored **63/63**. In r2, Sonnet and Haiku eac
 Both scored 63/63 and passed every scan-derived check. Haiku's mistakes were all omissions, which the checks catch and escalate, rather than wrong values.
 
 Raw outputs of every run are in `eval/experiments/`. They stay local and out of git, because they echo the sample's case data.
+
+## Review: "is this production-grade, or patchwork?" (user question, 11/01)
+
+- **The user's pushback was right on two counts:**
+  - The experiments varied all three mechanical tasks together, so they were a model swap, not a per-task choice.
+  - The IFTA parser was fitted to one model's transcript layout.
+- **Honest assessment:**
+  - **General, not fitted to the sample:** one schema-driven extractor, evidence checked in code, deterministic YAML rules, conflicts surfaced rather than auto-picked, missing or uncertain values giving REFER rather than PASS, and escalation triggered by failed checks rather than by file names.
+  - **Sample-specific:** the IFTA column vocabulary (one state's form), the `KEY_FIELDS` list, the 20% unverified threshold (a guess), and the eval (one sample, with no held-out set yet).
+- **Principle for choosing a model per task:** can code check the task's output?
+  - Text classification and text extraction are checkable: the excerpt must be on the page and contain the value. They run on **Haiku**.
+  - Transcribing scans and photos is only partly checkable. IFTA tables reconcile to their totals, but a photographed license date has nothing to check against, and the evidence check runs on the transcript itself. It runs on **Sonnet**.
+  - The analyst exercises judgment, so it stays on **Opus**.
+
+### IFTA parser hardening
+
+Every stored transcript from all four models (28 table pages) was replayed through the parser. **Before:** 7/7 pages on Opus, 4/7 on Sonnet, 3/7 on Haiku. The variants it had failed on:
+
+| Variant (model) | Before | Now |
+|---|---|---|
+| Key/value line written with a pipe, `Account Number: \| 247-918305` (Sonnet) | whole page rejected | line skipped as non-table |
+| Total row labelled `Totals \| \| 142,087 …` (Haiku) | read as a bad jurisdiction, page rejected | recognized as the total row |
+| Header written as `Tax-Paid Gallons`, `Total Due` and so on | would miss the column | columns matched by meaning |
+| Whole page run together on one line (Haiku, Q3 2025) | rejected | **still rejected on purpose**: the LLM extractor reads it |
+
+- **Result:** 27 of 28 pages now parse, and every parsed return reconciles exactly to its printed total.
+- **Fails closed:** a row the parser skips or misreads cannot pass silently, because the rows must add up to the printed total. A return that doesn't is re-transcribed on Opus or left LOW_CONFIDENCE.
+- **Tests:** 36 pass, including the layout variants above.
+
+### M1: per-task mix, fully measured (empty cache)
+
+| Task | Model | Calls | Cost | Share |
+|---|---|---|---|---|
+| classify_vision (13 scans/photos) | Sonnet 5.5 | 13 | $0.230 | 37% |
+| analyst | Opus 5.5 | 1 | $0.219 | 35% |
+| extract_loss_run | Haiku, **5 escalated to Opus** | 11 | $0.155 | 25% |
+| extract_mvr | Haiku | 6 | $0.007 | 1% |
+| extract_quote_form | Haiku | 1 | $0.004 | 1% |
+| extract_application | Haiku | 1 | $0.004 | 1% |
+| extract_ifta_return (summary pages only; tables parsed in code) | Haiku | 4 | $0.003 | <1% |
+| extract_driver_license | Haiku | 2 | $0.002 | <1% |
+| classify_text | Haiku | 2 | $0.000 | 0% |
+| **Total** | | **41** | **$0.622** | |
+
+- **Quality:** eval 63/63, all 4 IFTA returns reconcile, and 25 values are LOW_CONFIDENCE (21–25 on every other variant). 300 s of wall time.
+- **Cost:** $0.62 per submission is **−74% against Run 1 ($2.37)**. At 500 a day, that is about $310 a day instead of $1,185.
+- **Where the rest of the money goes:**
+  - *Transcription and the analyst* account for 72%, and both stay on stronger models on purpose.
+  - *Escalations* account for 25%: 5 of 6 loss runs, because Haiku omits the line of business. Mapping the printed "COVERAGE AUTO LIABLITY" (sic) to AL is a small inference Haiku skips.
+  - *Next lever, not built:* derive `line` in code from the printed coverage heading (AUTO LIABILITY → AL, MOTOR TRUCK CARGO → MTC). That would remove the escalations, about −$0.15, for **about $0.47**. It changes extraction, so it would need another measured run.
+
+### Still needed before calling the cheap configuration production-ready
+
+1. **A held-out set**, the open item from D-19: other carriers' loss runs, another state's IFTA return, phone photos and a bad scan, all built from scratch rather than edited copies of this sample. Calibrate the 20% threshold and the confidence priors on it.
+2. **Shadow mode in production:** run the mix and Opus side by side on a slice of real traffic, and switch when they agree.
+3. **Monitor the escalation rate.** A rising rate means the cheap tier is drifting.

@@ -15,7 +15,7 @@ def _env(name: str, default: str = "") -> str:
 DATA_DIR = ROOT / _env("DATA_DIR", "data")
 BLOB_DIR = DATA_DIR / "blobs"
 PAGE_DIR = DATA_DIR / "pages"
-CACHE_DIR = DATA_DIR / "llm_cache"
+CACHE_DIR = DATA_DIR / _env("LLM_CACHE_DIR", "llm_cache")  # a fresh dir = a fully measured run
 USAGE_LOG = DATA_DIR / "llm_usage.jsonl"  # one line per model call: the cost ledger (RUN_LOG.md)
 DB_URL = f"sqlite:///{(DATA_DIR / 'knight.db').as_posix()}"
 
