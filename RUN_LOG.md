@@ -21,6 +21,7 @@ Raw outputs of each experiment are in `eval/experiments/`.
 | **M1** | 11/01 04:36 | `3f6da31` | **Per-task mix:** classify Haiku · transcribe **Sonnet** · extract Haiku (→ Opus on failed check) · analyst Opus. **Empty cache: every call measured** | 41 (5 escalated) | 300 s | **$0.62** | **63/63** | Recommended default. 7/7 IFTA tables parsed in code |
 | D1 | 11/01 04:45 | `8c030f1` | **Defaults, no overrides**, after D-31 was decided (per-task mix in `TIER_DEFAULTS`) | 7 new + 33 cached (4 escalations, from cache) | ~90 s | $0.21 (mostly the analyst) | **63/63** | Confirms the app uses the mix by default: classify/extract Haiku, transcribe Sonnet, analyst Opus |
 | B3 | 11/01 04:57 / 04:58 | Block 3 commit | Defaults, through the **web app**: upload → double-start refused (409) → eval → field override → "OUT OF DATE" → rerun analysis | 1 + 1 (analyst) | ~90 s + ~60 s | $0.43 | **63/63** | Block 3 behaviour verified end to end; new rows store relative paths |
+| PG1 | 11/01 07:37 | this commit | Defaults, on **PostgreSQL 18** (fresh database, D-33) | 1 new (analyst) + 39 cached | ~90 s | $0.21 | **87/87** | Same results as SQLite; web routes, overrides and job claim checked on Postgres |
 
 ## Run 1: first real run (baseline)
 
