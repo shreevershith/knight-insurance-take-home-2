@@ -120,3 +120,20 @@ def test_apd_request_is_a_note_not_a_referral(db):
 def test_no_power_units_means_no_team(db):
     r, s = _evaluate(db, APP)
     assert r["RTE-01"].outcome == "NOT_EVALUATED" and s.team == ""
+
+
+def test_state_read_from_a_one_line_address(db):
+    rows = [("APPLICATION", "applicant", "application_date", "10/22/2026"),
+            ("APPLICATION", "applicant", "garaging_address", "418 Industrial Pkwy, Jackson, TN 38301")]
+    r, _ = _evaluate(db, rows)
+    assert r["ST-01"].outcome == "PASS" and "TN" in r["ST-01"].message and r["ST-03"].outcome == "PASS"
+
+
+def test_explicit_no_to_towing_passes_even_with_an_incomplete_commodity_list(db):
+    rows = APP + [("APPLICATION", "operations", "towing", "no"),
+                  ("APPLICATION", "commodity:c:0", "commodity", "Lumber"), ("APPLICATION", "commodity:c:0", "percent", "60")]
+    r, _ = _evaluate(db, rows)
+    assert r["PRO-06"].outcome == "PASS" and r["PRO-02"].outcome == "NOT_EVALUATED"
+    rows[-2] = ("APPLICATION", "commodity:c:0", "commodity", "Wrecker / towing services")
+    r, _ = _evaluate(db, rows)
+    assert r["PRO-06"].outcome == "DECLINE"   # a towing commodity outweighs the No

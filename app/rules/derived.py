@@ -81,6 +81,24 @@ def cdl_evidence(v: SubmissionView, key: str, cdl_event: str | None = None) -> l
     return sorted(out, key=lambda e: e.on)
 
 
+_STATE_ZIP = re.compile(r",\s*([A-Za-z]{2})\.?\s+\d{5}(?:-\d{4})?\b")
+
+
+def domicile_state(v: SubmissionView) -> tuple[str | None, str, list[int]]:
+    """(state code, where it came from, field ids). The mailing state if the model filled it; otherwise
+    the state inside a one-line address ('418 Industrial Pkwy, Jackson, TN 38301'), read in code and
+    checked against the US state list (held-out #2 finding, HO4)."""
+    state = v.value("applicant", "mailing_state")
+    if state.raw and state_code(state.raw):
+        return state_code(state.raw), "mailing state", state.field_ids
+    for name in ("mailing_address", "garaging_address"):
+        addr = v.value("applicant", name)
+        m = _STATE_ZIP.search(addr.raw or "")
+        if m and state_code(m.group(1)):
+            return state_code(m.group(1)), f"{name.replace('_', ' ')} '{addr.raw}'", addr.field_ids
+    return None, "", state.field_ids
+
+
 def operating_states(v: SubmissionView) -> tuple[set[str], list[int]]:
     """State codes with IFTA miles, deduplicated (Kentucky + Kentucky surcharge = KY)."""
     states, ids = set(), []

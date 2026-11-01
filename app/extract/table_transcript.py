@@ -12,7 +12,7 @@ A row the parser skips (or misreads) can't pass silently: the rows must add up t
 """
 import re
 
-from app.extract.normalize import parse_number, state_code
+from app.extract.normalize import parse_date, parse_number, state_code
 
 # Columns are matched by meaning, not exact text: transcripts of the same form differ by model
 # ("Tax Paid Gal" / "Tax-Paid Gallons", "Total" / "Total Due").
@@ -44,11 +44,36 @@ def _numeric(cell: str) -> bool:
     return bool(cell) and parse_number(cell) is not None and not re.search(r"[A-Za-z]", cell)
 
 
+_PERIOD_LINE = re.compile(r"period|quarter|through|ending", re.I)
+_DATE = re.compile(r"\b\d{1,2}/\d{1,2}/\d{4}\b|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2}, \d{4}\b")
+
+
+def _page_period(text: str) -> tuple[str, str] | None:
+    """(period end as printed, the line it is on) from lines like 'Quarter: 01/01/2026 through 03/31/2026',
+    'Reporting Period: 10/01/2025 - 12/31/2025' or 'Filing Period: March 31, 2026'. The latest date on the
+    line is the period end; anything after 'Due' is ignored (the due date often shares the line)."""
+    for line in text.splitlines():
+        if not _PERIOD_LINE.search(line):
+            continue
+        before_due = re.split(r"\bdue\b", line, flags=re.I)[0]
+        dates = [(parse_date(d), d) for d in _DATE.findall(before_due)]
+        dates = [(d, raw) for d, raw in dates if d]
+        if dates:
+            return max(dates)[1], line.strip()
+    return None
+
+
 def parse_ifta_page(text: str, page_ctx: dict) -> list[dict] | None:
     """IFTA jurisdiction table -> facts in the extractor's shape. The header row is remembered in
     page_ctx so a continuation page (no header of its own) parses the same way."""
     header = page_ctx.get("ifta_header")
     facts: list[dict] = []
+    period = _page_period(text)
+    if period:
+        # This page names its own quarter: it is a return of its own, not a continuation of the previous
+        # page's (several returns in one PDF; held-out #2, HO4). Resolution keys the rows to it.
+        facts.append({"group": "ifta", "entity_type": "ifta", "index": 0, "field": "period_end",
+                      "value": period[0], "excerpt": period[1]})
     rows = 0
     for line in text.splitlines():
         if "|" not in line:

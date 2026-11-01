@@ -27,6 +27,9 @@ Raw outputs of each experiment are in `eval/experiments/`.
 | S2 | 11/01 08:10 | fixes 1–4 | Sample again (regression check after the fixes) | 2 new + 38 cached | ~70 s | $0.24 | **87/87** | No regression |
 | HO3 | 11/01 08:14 | this commit | Rules re-run on HO2 and S2 after fix 5 (no model calls) | 0 | – | $0 | **72/72** held-out, **87/87** sample | Held-out decision now DECLINE. **72/72 is a regression result, not a measurement** (the fixes were found with this file) |
 | **HO4** | 11/01 16:01 | `d389d46` (unchanged) | **Held-out #2** (Bluestem Haulage, TN), written after the held-out #1 fixes, **run once** | 24 (+3 cached, 1 escalated) | ~2.5 min | **$0.17** | **64/70** | **Decision correct (DECLINE)**: tow truck and 31-35 over both caught. 6 misses, all toward NOT_EVALUATED/REFER |
+| HO5 | 11/01 16:08 | this commit | Held-out #2 again after its three fixes | 1 new + 22 cached | ~45 s | $0.12 | 69/70 | Regression result (no longer a measurement). Remaining miss: no `mailing_state` field is stored; the rules derive TN from the address |
+| S3 | 11/01 16:09 | this commit | Sample again (regression check) | 1 new + 39 cached | ~45 s | $0.22 | **87/87** | No regression |
+| HO1 re-rules | 11/01 16:10 | this commit | Held-out #1, rules re-run only | 0 | – | $0 | **72/72** | Holds |
 
 ## Run 1: first real run (baseline)
 
@@ -323,3 +326,16 @@ Expected values were written first (`eval/heldout/bluestem_expected.json`); the 
 
 **Summary across both held-out sets:** 49/72 (HO1) and 64/70 (HO4), both on unseen input. On the second, every hard
 decision was right; the misses were all conservative.
+
+### Fixes from held-out #2 (HO5)
+
+1. **A page that names its own quarter is its own return.** The IFTA table parser reads the period from lines like
+   "Quarter: 01/01/2026 through 03/31/2026" (ignoring the due date on the same line) and keys the page's rows to it,
+   instead of inheriting the previous page's quarter. This fixes several returns in one PDF.
+2. **Domicile state from a one-line address.** When the state field is empty, the rules read the state in code from
+   the mailing or garaging address (", TN 38301"), checked against the US state list and cited as evidence. The
+   extracted field itself is still empty: the eval check for `mailing_state` stays a miss, honestly.
+3. **An explicit "No" to towing passes PRO-06**, as it does for hazmat and intermodal, unless a commodity says towing.
+
+**Result:** held-out #2 69/70, held-out #1 72/72, sample 87/87; 58 tests. The measurements that count stay
+**49/72 (HO1) and 64/70 (HO4)**. Both held-out sets have now been used for fixes, so a new measurement needs a third.

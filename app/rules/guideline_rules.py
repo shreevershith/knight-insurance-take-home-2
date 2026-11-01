@@ -240,13 +240,12 @@ def new_venture_corporation(v, cfg) -> Result:
 
 @rule("ST-03")
 def illinois_selective(v, cfg) -> Result:
-    state = v.value("applicant", "mailing_state")
-    code = state_code(state.raw)
+    code, where, ids = derived.domicile_state(v)
     if not code:
         return missing(v, "Applicant state", APP_DOCS)
     selective = code in cfg["params"]["selective_states"]
-    return Result(not selective, f"domicile {code}" + (" is a selective state: underwriter review" if selective
-                                                        else " is not a selective state"), state.field_ids)
+    return Result(not selective, f"domicile {code} (from {where})" + (" is a selective state: underwriter review"
+                                                                      if selective else " is not a selective state"), ids)
 
 
 # ---------------------------------------------------------------- submission completeness

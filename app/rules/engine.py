@@ -306,17 +306,16 @@ def driver_age(v: SubmissionView, cfg) -> Result:
 
 @rule("ST-01")
 def domicile_listed(v: SubmissionView, cfg) -> Result:
-    state = v.value("applicant", "mailing_state")
-    code = derived.state_code(state.raw)
+    code, where, ids = derived.domicile_state(v)
     if not code:
         return missing(v, "Applicant state", APP_DOCS)
     listed = code in cfg["params"]["available_states"]
-    return Result(listed, f"domicile {code} {'is' if listed else 'is NOT'} an available state", state.field_ids)
+    return Result(listed, f"domicile {code} (from {where}) {'is' if listed else 'is NOT'} an available state", ids)
 
 
 @rule("ST-02")
 def texas_north_of_i10(v: SubmissionView, cfg) -> Result:
-    domicile = derived.state_code(v.value("applicant", "mailing_state").raw)
+    domicile = derived.domicile_state(v)[0]
     states, ids = derived.operating_states(v)
     farthest = v.value("operations", "farthest_state")
     touches_tx = domicile == "TX" or "TX" in states or derived.state_code(farthest.raw) == "TX"
@@ -430,7 +429,12 @@ def no_towing(v, cfg):
     towing = v.value("operations", "towing")
     if towing.norm is True:
         return Result(False, "Towing/recovery: answered Yes", towing.field_ids)
-    return _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-06"], "Towing/recovery")
+    res = _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-06"], "Towing/recovery")
+    if res.passed is False:   # a towing commodity outweighs a 'No' answer
+        return res
+    if towing.norm is False:  # an explicit No decides it, as for hazmat and intermodal (held-out #2, HO4)
+        return Result(True, "Towing/recovery: answered No", towing.field_ids)
+    return res
 
 
 @rule("PRO-07")

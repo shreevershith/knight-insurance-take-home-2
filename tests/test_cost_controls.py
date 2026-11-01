@@ -62,7 +62,7 @@ def test_routing_defaults_and_overrides(monkeypatch):
 def test_full_width_total_row_reads_the_total_miles_column():
     page = PAGE_2.split("\nAlabama")[0] + "\nAlabama | | 2. Diesel | 448 | 448 | 6.05 | 74 | 39 | 35 | 0.29 | $1 | $0 | $1\n | | | 448 | 448 | | 74 | 39 | 35 | | $1 | $0 | $1"
     facts = parse_ifta_page(page, {"doc_id": 1})
-    assert [f["value"] for f in facts if f["entity_type"] == "ifta"] == ["448"]
+    assert [f["value"] for f in facts if f["field"] == "total_miles" and f["entity_type"] == "ifta"] == ["448"]
 
 
 def test_continuation_page_is_extracted_as_the_document_it_continues():
@@ -85,10 +85,22 @@ def test_ifta_parser_tolerates_layout_variants_between_models():
             "Texas | 2. Diesel | 841 | 841 | 6.05 | 139 | 1,220 | -1,081 | 0.2000 | -$216.20 | $0.00 | -$216.20\n"
             "Totals | | 2,948 | 2,948 | | 761 | 1,299 | 0 | | $3,464.20 | $134.80 | $3,599.00")
     facts = parse_ifta_page(page, ctx)
-    assert [f["value"] for f in facts if f["entity_type"] == "ifta"] == ["2,948"]
+    assert [f["value"] for f in facts if f["field"] == "total_miles" and f["entity_type"] == "ifta"] == ["2,948"]
     assert sum(f["entity_type"] == "ifta_row" and f["field"] == "jurisdiction" for f in facts) == 1
 
 
 def test_ifta_parser_declines_a_page_run_together_on_one_line():
     one_line = " | ".join(PAGE_2.splitlines())  # Haiku once returned a whole page as one line
     assert parse_ifta_page(one_line, {"doc_id": 1}) is None
+
+
+def test_each_return_in_one_pdf_keys_to_its_own_quarter():
+    # held-out #2: four returns in one PDF; a page that names its quarter must not inherit the previous one
+    ctx = {"doc_id": 1}
+    q4 = "Quarter: 10/01/2025 through 12/31/2025   Due: 01/31/2026\n" + PAGE_2.split("\n", 2)[2]
+    q1 = q4.replace("10/01/2025 through 12/31/2025   Due: 01/31/2026", "01/01/2026 through 03/31/2026   Due: 04/30/2026")
+    first, second = parse_ifta_page(q4, ctx), parse_ifta_page(q1, ctx)
+    assign_keys(first, ctx, [])
+    assign_keys(second, ctx, [])
+    assert {f["entity_key"].split(":")[1] for f in first if f["entity_type"] == "ifta_row"} == {"2025-12-31"}
+    assert {f["entity_key"].split(":")[1] for f in second if f["entity_type"] == "ifta_row"} == {"2026-03-31"}
