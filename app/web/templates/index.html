@@ -69,10 +69,12 @@
     {% for s in subs %}
     <tr class="sub-row" {% if s.status in ('RECEIVED', 'PROCESSING') %}data-live="{{ s.id }}"{% endif %}>
       <td class="muted">{{ s.id }}</td>
-      <td><a class="subject" href="/submissions/{{ s.id }}">{{ s.subject }}</a><span class="step-note">{{ s.sender }}</span></td>
+      <td><a class="subject" href="/submissions/{{ s.id }}">{{ companies.get(s.id) or s.subject }}</a>
+        <span class="step-note">{{ s.subject if companies.get(s.id) else s.sender }}</span></td>
       <td class="small muted nowrap hide-sm">{{ s.received_at.strftime('%b %d, %H:%M') }}</td>
       <td><span class="pill {{ s.status }}" data-f="status">{{ s.status }}</span><span class="step-note" data-f="step">{{ s.step if s.status != 'DONE' else '' }}</span></td>
-      <td data-f="decision">{% if s.decision %}<span class="pill {{ s.decision }}">{{ s.decision }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td data-f="decision">{% if s.decision %}<span class="pill {{ s.decision }}">{{ s.decision }}</span>{% else %}<span class="muted">—</span>{% endif %}
+        {% if open_counts.get(s.id) %}<span class="step-note">{{ open_counts[s.id] }} open conflicts</span>{% endif %}</td>
       <td class="hide-sm" data-f="team">{{ s.team or '' }}</td>
     </tr>
     {% else %}<tr><td colspan="6" class="empty">No submissions yet. Drop the sample email above to start.</td></tr>{% endfor %}

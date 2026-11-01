@@ -4,6 +4,7 @@ import threading
 from collections import defaultdict
 from pathlib import Path
 
+from sqlalchemy import func
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from urllib.parse import quote
 
@@ -12,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import config, pipeline, review
 from app.config import data_path
+from app.web.labels import entity_labels, label_for
 from app.db import (AuditEvent, Conflict, Document, Field, JobLog, Page, RuleResult, SessionLocal, Submission,
                     audit, init_db)
 from app.intake import ingest_eml, ingest_files
@@ -105,6 +107,7 @@ def _summary_blocks(text: str) -> list[tuple[str, object]]:
 
 
 templates.env.filters["summary_blocks"] = _summary_blocks
+templates.env.globals["label_for"] = label_for
 
 
 def _back(url: str, message: str, anchor: str = "") -> RedirectResponse:
@@ -116,8 +119,12 @@ def _back(url: str, message: str, anchor: str = "") -> RedirectResponse:
 def index(request: Request):
     with SessionLocal() as db:
         subs = db.query(Submission).order_by(Submission.id.desc()).all()
+        companies = {sid: value for sid, value in db.query(Field.submission_id, Field.value).filter(
+            Field.entity_key == "applicant", Field.name == "business_name", Field.status == "OK")}
+        open_counts = dict(db.query(Conflict.submission_id, func.count()).filter(Conflict.status == "OPEN")
+                           .group_by(Conflict.submission_id))
         return templates.TemplateResponse(request, "index.html", {
-            "subs": subs, "llm_ok": config.llm_configured(),
+            "subs": subs, "llm_ok": config.llm_configured(), "companies": companies, "open_counts": open_counts,
             "routes": {t: config.route(t)[0].replace("claude-", "") for t in config.TIERS}})
 
 
@@ -178,13 +185,14 @@ def show(request: Request, sub_id: int):
             entities[f.entity_key].append(f)
         field_by_id = {f.id: f for f in fields}
         value_groups, ifta_rows = _group_values(dict(entities))
+        names = entity_labels(fields)
         pages = {p.id: p for d in docs for p in d.pages}
         return templates.TemplateResponse(request, "submission.html", {
             "sub": sub, "docs": docs, "logs": logs, "entities": dict(entities), "conflicts": conflicts,
             "rules": rules, "audits": audits, "replaced": replaced, "field_by_id": field_by_id, "pages": pages,
             "running": sub.status in ("RECEIVED", "PROCESSING"), "stages": STAGES, "stage": _stage(logs),
             "low_confidence": sum(f.status == "LOW_CONFIDENCE" for f in fields),
-            "value_groups": value_groups, "ifta_rows": ifta_rows,
+            "value_groups": value_groups, "ifta_rows": ifta_rows, "names": names,
             "ifta_columns": IFTA_COLUMNS,
             "company": next((f.value for f in sorted(fields, key=lambda f: f.method != "human")
                              if f.entity_key == "applicant" and f.name == "business_name"

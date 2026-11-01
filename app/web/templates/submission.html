@@ -14,7 +14,7 @@
 {%- endmacro %}
 {% macro cite(e) -%}
   {%- if e[:1] == 'F' and e[1:].isdigit() and field_by_id.get(e[1:]|int) -%}
-    {%- set f = field_by_id.get(e[1:]|int) -%}<a class="chip" href="#{{ e }}" title="{{ e }} · {{ f.entity_key }}">{{ f.name }}</a>
+    {%- set f = field_by_id.get(e[1:]|int) -%}<a class="chip" href="#{{ e }}" title="{{ label_for(f.entity_key, names) }} · {{ e }}">{{ f.name|replace('_', ' ') }}</a>
   {%- else -%}<a class="chip" href="#{{ e }}">{{ e }}</a>{%- endif -%}
 {%- endmacro %}
 
@@ -153,7 +153,9 @@
   .entity { border:1px solid var(--line); margin-bottom:8px; background:var(--bg); }
   .entity > summary { padding:9px 12px; display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; transition:background .15s; }
   .entity > summary:hover { background:var(--surface); }
-  .entity > summary code { background:none; border:0; padding:0; color:var(--ink); font-weight:500; word-break:break-all; min-width:0; }
+  .entity > summary .ename { font-weight:500; color:var(--ink); }
+  .entity > summary code { background:none; border:0; padding:0; color:var(--faint); font-size:11px; word-break:break-all; min-width:0; }
+  .guide { margin:-4px 0 0; color:var(--ink-2); font-size:13.5px; } .guide b { color:var(--ink); }
   .val { font-weight:500; color:var(--ink); word-break:break-word; }
   .ex { font:400 11px/1.5 var(--mono); color:var(--muted); max-width:38ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .fail { color:var(--bad-fg); font:400 11px/1.4 var(--mono); }
@@ -192,7 +194,7 @@
 {% block body %}
 <div class="layout">
 <aside class="rail">
-  <div class="rail-head"><span class="caps">Packet dossier</span><span class="mono faint">SUB-{{ '%04d'|format(sub.id) }}</span></div>
+  <div class="rail-head"><span class="caps">Submission file</span><span class="mono faint">SUB-{{ '%04d'|format(sub.id) }}</span></div>
 
   <div>
     <div class="caps" style="margin-bottom:8px">Processing</div>
@@ -227,11 +229,11 @@
 <div>
   <nav class="tabs" aria-label="Sections">
     <a href="#overview">Overview</a>
-    <a href="#actions">Action items<span class="n">{{ failing|length + not_eval|length + open_conflicts|length }}</span></a>
-    <a href="#ai">Summary</a>
+    <a href="#actions">To review<span class="n">{{ failing|length + not_eval|length + open_conflicts|length }}</span></a>
+    <a href="#ai">AI summary</a>
     <a href="#rules">Rules<span class="n">{{ rules|length }}</span></a>
     <a href="#conflicts">Conflicts<span class="n">{{ open_conflicts|length }}</span></a>
-    <a href="#fields">Fields &amp; evidence<span class="n">{{ n_fields }}</span></a>
+    <a href="#fields">Extracted data<span class="n">{{ n_fields }}</span></a>
     <a href="#docs">Documents<span class="n">{{ n_pages }}</span></a>
     <a href="#audit">Audit<span class="n">{{ audits|length }}</span></a>
   </nav>
@@ -245,6 +247,9 @@
       <h1>{{ headline.get(sub.decision, 'Processing…' if running else 'Not decided') }}</h1>
       <span class="co">{{ company or sub.subject }}</span>
     </div>
+    {% if sub.decision and not running %}<p class="guide">{% set todo = failing|length + not_eval|length + open_conflicts|length %}
+      {% if todo %}<b>What to do:</b> work through the {{ todo }} items under <a href="#actions">To review</a>. Resolving a conflict or correcting a value re-runs the rules straight away.
+      {% else %}<b>Nothing needs a person.</b> Every rule passed and no conflicts are open.{% endif %}</p>{% endif %}
     {% if running %}<div class="running-note" role="status"><span class="pill PROCESSING">Processing</span>
       <span>Results are being rebuilt. The figures below are incomplete and refresh on their own when the run finishes.</span>
       <span class="sweep"></span></div>{% endif %}
@@ -252,7 +257,7 @@
       <a class="metric {{ 'bad' if failing else 'good' }}" href="#rules"><span class="caps">Rule failures</span>
         <div class="big"><span class="num" data-count="{{ failing|length }}">{{ failing|length }}</span><span class="unit">of {{ rules|length }}</span></div>
         <div class="note">{{ rules|selectattr('outcome', 'equalto', 'PASS')|list|length }} passed{% if rules|selectattr('outcome', 'equalto', 'FLAG')|list %} · {{ rules|selectattr('outcome', 'equalto', 'FLAG')|list|length }} flagged{% endif %}</div></a>
-      <a class="metric {{ 'violet' if not_eval else '' }}" href="#rules"><span class="caps">Not determinable</span>
+      <a class="metric {{ 'violet' if not_eval else '' }}" href="#rules"><span class="caps">Couldn't be checked</span>
         <div class="big"><span class="num" data-count="{{ not_eval|length }}">{{ not_eval|length }}</span><span class="unit">rules</span></div>
         <div class="note">Missing inputs: a person decides</div></a>
       <a class="metric {{ 'warn' if open_conflicts else 'good' }}" href="#conflicts"><span class="caps">Open conflicts</span>
@@ -269,7 +274,7 @@
   </section>
 
   <section class="anchor" id="actions">
-    <div class="sec-head"><h2>Action items ({{ failing|length + not_eval|length + open_conflicts|length }})</h2>
+    <div class="sec-head"><h2>To review ({{ failing|length + not_eval|length + open_conflicts|length }})</h2>
       <span class="caps">Underwriter intervention required</span></div>
     {% if failing or not_eval or open_conflicts %}
     {% if failing %}<details class="act-group" open>
@@ -283,12 +288,12 @@
       <summary><span class="chev">›</span><span class="pill tone-warn">Conflicts to resolve</span>
         <span class="g-count">{{ open_conflicts|length }}</span><span class="g-note">documents disagree: pick the right value</span></summary>
       <div class="actions-list">{% for c in open_conflicts %}<div class="act"><span class="mono rid">C{{ c.id }}</span>
-        <div style="min-width:0"><div class="what">{{ c.field_name|replace('_', ' ')|capitalize }} <span class="mono faint">· {{ c.entity_key }}</span></div>
+        <div style="min-width:0"><div class="what">{{ label_for(c.entity_key, names) }}: {{ c.field_name|replace('_', ' ') }}</div>
           <div class="why">{{ c['values']|map(attribute='value')|join('  vs  ') }}</div></div>
         <a class="btn sm" href="#C{{ c.id }}">Resolve</a></div>{% endfor %}</div>
     </details>{% endif %}
     {% if not_eval %}<details class="act-group">
-      <summary><span class="chev">›</span><span class="pill NOT_EVALUATED">Not determinable</span>
+      <summary><span class="chev">›</span><span class="pill NOT_EVALUATED">Couldn't be checked</span>
         <span class="g-count">{{ not_eval|length }}</span><span class="g-note">inputs missing from the submission: a person checks</span></summary>
       <div class="actions-list">{% for r in not_eval %}<div class="act"><span class="mono rid">{{ r.rule_id }}</span>
         <div style="min-width:0"><div class="what">{{ r.title }}</div><div class="why">{{ r.message.split(' | OK: ')[0] }}</div></div>
@@ -360,20 +365,24 @@
     {% for c in conflicts|sort(attribute='status') %}
     <div class="conflict {{ c.status }}" id="C{{ c.id }}">
       <h4><span class="pill {{ c.status }}">{{ c.status }}</span><span class="pill plain">{{ c.kind|replace('_', ' ') }}</span>
-        {{ c.field_name|replace('_', ' ')|capitalize }} <code>{{ c.entity_key }}</code></h4>
+        {{ label_for(c.entity_key, names) }}: {{ c.field_name|replace('_', ' ') }} <span class="mono faint small">{{ c.entity_key }}</span></h4>
       {% if c.description %}<div class="small muted" style="margin-top:6px">{{ c.description }}</div>{% endif %}
       {% if c.status == 'OPEN' %}
       <form method="post" action="/conflicts/{{ c.id }}/resolve">
-        <div class="options">{% for v in c['values'] %}
-          <label class="opt"><input type="radio" name="field_id" value="{{ v.field_id }}" {% if v.field_id == c.suggested_field_id or (not c.suggested_field_id and loop.first) %}checked{% endif %}>
-            {% if v.field_id == c.suggested_field_id %}<span class="pill PASS sugg" title="{{ c.suggestion_reason }}">Suggested</span>{% endif %}
-            <div class="v">{{ v.value }}</div><div class="s">{{ v.source }}</div></label>{% endfor %}</div>
+        <div class="options">{% for g in c['values']|groupby('value') %}
+          {% set ids = g.list|map(attribute='field_id')|list %}
+          {% set suggested = c.suggested_field_id in ids %}
+          <label class="opt"><input type="radio" name="field_id" value="{{ c.suggested_field_id if suggested else ids[0] }}" {% if suggested or (not c.suggested_field_id and loop.first) %}checked{% endif %}>
+            {% if suggested %}<span class="pill PASS sugg" title="{{ c.suggestion_reason }}">Suggested</span>{% endif %}
+            <div class="v">{{ g.grouper }}</div>
+            <div class="s" title="{{ g.list|map(attribute='source')|join('\n') }}">{{ g.list[0].source }}{% if g.list|length > 1 %} <b>+ {{ g.list|length - 1 }} more</b>{% endif %}</div></label>{% endfor %}</div>
         {% if c.suggestion_reason %}<div class="small muted" style="margin:-2px 0 10px"><i class="serif">Why suggested:</i> {{ c.suggestion_reason }}</div>{% endif %}
         <div class="resolve"><input type="text" name="reason" required placeholder="Reason for your decision (required, goes to the audit log)">
           <button class="primary" {% if running %}disabled{% endif %}>Resolve</button></div>
       </form>
       {% else %}
-        <div class="options">{% for v in c['values'] %}<div class="opt" style="cursor:default"><div class="v">{{ v.value }}</div><div class="s">{{ v.source }}</div></div>{% endfor %}</div>
+        <div class="options">{% for g in c['values']|groupby('value') %}<div class="opt" style="cursor:default"><div class="v">{{ g.grouper }}</div>
+          <div class="s">{{ g.list[0].source }}{% if g.list|length > 1 %} <b>+ {{ g.list|length - 1 }} more</b>{% endif %}</div></div>{% endfor %}</div>
         <div class="small"><span class="pill human plain">Decision</span> <span class="muted">{{ c.resolution }}</span></div>
       {% endif %}
     </div>
@@ -381,7 +390,7 @@
   </section>
 
   <section class="anchor" id="fields">
-    <div class="sec-head"><h2>Fields &amp; evidence</h2>
+    <div class="sec-head"><h2>Extracted data</h2>
       <div class="tools"><input type="search" id="q" placeholder="Filter: field, value, entity…" aria-label="Filter extracted values">
         <label class="toggle"><input type="checkbox" id="lowonly"> Needs review only ({{ low_confidence }})</label></div></div>
     <p class="small muted" style="margin:-4px 0 12px">{{ n_fields }} values across {{ entities|length }} entities, each with its source excerpt and a confidence.
@@ -407,7 +416,7 @@
       {% set jrows = ifta_rows.get(period, []) if period else [] %}
       {% set lows = (items|selectattr('status', 'equalto', 'LOW_CONFIDENCE')|list|length) + (jrows|selectattr('low')|list|length) %}
       <details class="entity" {% if loop.index <= 3 and label.startswith('Applicant') %}open{% endif %}>
-        <summary><span class="chev">›</span><code>{{ key }}</code>
+        <summary><span class="chev">›</span><span class="ename">{{ label_for(key, names) }}</span><code>{{ key }}</code>
           <span class="small faint">{{ items|length }} values{% if jrows %} · {{ jrows|length }} jurisdictions{% endif %}</span>
           {% if lows %}<span class="pill LOW_CONFIDENCE">{{ lows }} to review</span>{% endif %}</summary>
         {{ field_table(items) }}
@@ -505,7 +514,7 @@
   const filter = () => {
     const term = q.value.trim().toLowerCase(), lowOnly = low.checked; let any = false;
     $$("#fields details.entity").forEach(d => {
-      const key = d.querySelector("summary code").textContent.toLowerCase(); let shown = 0;
+      const key = d.querySelector("summary").textContent.toLowerCase(); let shown = 0;
       d.querySelectorAll("tr.frow").forEach(tr => {
         const hit = (!term || key.includes(term) || tr.textContent.toLowerCase().includes(term)) && (!lowOnly || tr.dataset.low === "1");
         tr.classList.toggle("hidden", !hit); shown += hit;
