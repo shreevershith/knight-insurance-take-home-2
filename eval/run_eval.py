@@ -24,7 +24,7 @@ def check(label, ok, got, want, rows):
 
 def main() -> None:
     with SessionLocal() as db:
-        sub_id = int(sys.argv[1]) if len(sys.argv) > 1 else db.query(Submission.id).order_by(Submission.id.desc()).scalar()
+        sub_id = int(sys.argv[1]) if len(sys.argv) > 1 else db.query(Submission.id).order_by(Submission.id.desc()).limit(1).scalar()
         sub = db.get(Submission, sub_id)
         v = SubmissionView(db, sub_id)
         rows: list = []

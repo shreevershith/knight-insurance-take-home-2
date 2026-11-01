@@ -1,0 +1,61 @@
+"""D-31: IFTA tables read by code, per-task model routing, escalation only with a cheap tier."""
+from app import config, llm
+from app.extract.table_transcript import parse_ifta_page
+from app.resolve import assign_keys
+
+PAGE_2 = """Account Number: 247-918305
+Filing Period: March 31, 2026
+Jurisdiction Summary
+Jurisdiction | Surcharge | Fuel Type | Total Miles | Taxable Miles | MPG | Taxable Gal | Tax Paid Gal | Net Taxable Gal | Rate | Tax | Interest | Total
+Alabama | | 2. Diesel | 448 | 448 | 6.05 | 74 | 39 | 35 | 0.2900 | $10.15 | $0.23 | $10.38
+Kentucky | | 2. Diesel | 1,659 | 1,659 | 6.05 | 274 | 40 | 234 | 0.2200 | $51.48 | $1.16 | $52.64
+Kentucky | Surcharge | 2. Diesel | 0 | 0 | 0.00 | 274 | 0 | 0 | 0.1050 | $28.77 | $0.65 | $29.42"""
+
+PAGE_3 = """Account Number: 247-918305
+Filing Period: March 31, 2026
+Texas | 2. Diesel | 841 | 841 | 6.05 | 139 | 1,220 | -1,081 | 0.2000 | -$216.20 | $0.00 | -$216.20
+2,948 | 2,948 | 761 | 1,299 | 0 | $3,464.20 | $134.80 | $3,599.00"""
+
+
+def _by_key(facts):
+    out = {}
+    for f in facts:
+        out.setdefault(f["entity_key"], {})[f["field"]] = f["value"]
+    return out
+
+
+def test_ifta_table_parsed_in_code_across_continuation_page():
+    ctx = {"doc_id": 1, "ifta_period": "2026-03-31"}
+    p2, p3 = parse_ifta_page(PAGE_2, ctx), parse_ifta_page(PAGE_3, ctx)
+    assign_keys(p2, ctx, [])
+    assign_keys(p3, ctx, [])
+    rows = _by_key(p2 + p3)
+    assert rows["ifta_row:2026-03-31:KY"]["total_miles"] == "1,659"
+    assert rows["ifta_row:2026-03-31:KY-SURCHARGE"]["total_miles"] == "0"   # surcharge kept apart
+    assert rows["ifta_row:2026-03-31:TX"]["total_miles"] == "841"          # header carried, column dropped
+    assert rows["ifta:2026-03-31"]["total_miles"] == "2,948"               # the total row
+    for f in p2 + p3:
+        assert f["value"] in f["excerpt"]                                   # excerpt = the row line
+
+
+def test_ifta_parser_gives_up_rather_than_guess():
+    assert parse_ifta_page("Taxpayer Name: X\n1. Penalty | $0.00", {"doc_id": 1}) is None
+    bad = PAGE_2 + "\nAlberta | | 2. Diesel | 10 | 10 | 6 | 1 | 1 | 0 | 0.1 | $1 | $0 | $1"
+    assert parse_ifta_page(bad, {"doc_id": 1}) is None                     # a province: the LLM decides
+
+
+def test_routing_defaults_and_overrides(monkeypatch):
+    assert config.route("extract") == (config.CLAUDE_MODEL, config.CLAUDE_EFFORT)
+    monkeypatch.setenv("LLM_MODEL_TRANSCRIBE", "claude-haiku-5-5")
+    monkeypatch.setenv("LLM_EFFORT_TRANSCRIBE", "low")
+    assert config.route("transcribe") == ("claude-haiku-5-5", "low")
+    assert not config.supports_fallbacks("claude-haiku-5-5")
+    assert llm.tier_for("classify_vision") == "transcribe"
+    assert llm.tier_for("extract_mvr") == "extract"
+    assert round(config.cost_usd("claude-opus-5-5", 1_000_000, 100_000), 2) == 6.0
+
+
+def test_full_width_total_row_reads_the_total_miles_column():
+    page = PAGE_2.split("\nAlabama")[0] + "\nAlabama | | 2. Diesel | 448 | 448 | 6.05 | 74 | 39 | 35 | 0.29 | $1 | $0 | $1\n | | | 448 | 448 | | 74 | 39 | 35 | | $1 | $0 | $1"
+    facts = parse_ifta_page(page, {"doc_id": 1})
+    assert [f["value"] for f in facts if f["entity_type"] == "ifta"] == ["448"]

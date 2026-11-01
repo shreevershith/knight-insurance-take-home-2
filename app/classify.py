@@ -7,7 +7,7 @@ through the same text extraction path as text-layer pages).
 """
 import re
 
-from app import llm
+from app import config, llm
 from app.db import Page
 from app.log import get_logger
 
@@ -100,7 +100,15 @@ VISION_SYSTEM = (
 )
 
 
-def classify_page(page: Page, ctx: dict) -> None:
+def _vision(page: Page, ctx: dict, escalate: bool, reason: str) -> dict:
+    return llm.structured_call(
+        task="classify_vision", system=VISION_SYSTEM, schema=_VISION_SCHEMA, max_tokens=16000,
+        content=[llm.image_block(page.image_path),
+                 {"type": "text", "text": "Classify and transcribe this page."}], ctx=ctx,
+        escalate=escalate, reason=reason)
+
+
+def classify_page(page: Page, ctx: dict, escalate: bool = False, reason: str = "") -> None:
     """Sets doc_type/classify_* on the page; image pages also get a transcript. Raises llm.LLMError."""
     if page.has_text_layer:
         hit = classify_text_rules(page.text)
@@ -115,10 +123,18 @@ def classify_page(page: Page, ctx: dict) -> None:
         page.classify_reason, page.classify_method = data["reason"], "llm_text"
         return
 
-    data = llm.structured_call(
-        task="classify_vision", system=VISION_SYSTEM, schema=_VISION_SCHEMA, max_tokens=16000,
-        content=[llm.image_block(page.image_path),
-                 {"type": "text", "text": "Classify and transcribe this page."}], ctx=ctx)
+    # A cheap transcription tier gets one re-run on the escalation model if it fails or calls the page
+    # unreadable (D-31); IFTA pages are re-run later too if their rows don't add up to the total.
+    cheap = escalate is False and config.route("transcribe")[0] != config.ESCALATION_MODEL
+    try:
+        data = _vision(page, ctx, escalate, reason)
+    except llm.LLMError as exc:
+        if not cheap:
+            raise
+        data = _vision(page, ctx, True, f"model error: {exc}")
+    else:
+        if cheap and not data["readable"]:
+            data = _vision(page, ctx, True, "cheap tier marked the page unreadable")
     page.doc_type, page.classify_confidence = data["doc_type"], float(data["confidence"])
     page.classify_reason, page.classify_method = data["reason"], "llm_vision"
     if not data["readable"]:

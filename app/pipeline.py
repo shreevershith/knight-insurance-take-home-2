@@ -4,15 +4,17 @@ Each step writes a progress line (shown in the UI). A failure on one page marks 
 (MODEL_ERROR / UNREADABLE) and the run continues; missing data then shows up as missing, never guessed.
 """
 import traceback
+from datetime import datetime, timezone
 from collections import defaultdict
 
-from app import conflicts, llm
+from app import config, conflicts, llm
 from app.classify import classify_page
 from app.db import Conflict, Document, Field, JobLog, Page, RuleResult, SessionLocal, Submission, audit
 from app.extract import evidence
 from app.extract.llm_extract import extract_page
 from app.extract.normalize import normalize, parse_number, validate
 from app.extract.spec import SPEC
+from app.extract.table_transcript import parse_ifta_page
 from app.extract.xlsx_extract import extract_sheet
 from app.intake import split_pages
 from app.log import get_logger
@@ -21,6 +23,7 @@ from app.resolve import assign_keys
 log = get_logger(__name__)
 TABULAR_TYPES = {"DRIVER_SCHEDULE", "VEHICLE_SCHEDULE"}
 FORM_TYPES = {"QUOTE_FORM", "APPLICATION"}  # forms: send the page image too (checkbox states)
+ESCALATE_IF_UNVERIFIED = 0.2  # share of a page's values whose excerpt isn't in the page -> re-run on Opus
 
 
 def progress(db, sub: Submission, message: str, level: str = "INFO") -> None:
@@ -33,6 +36,9 @@ def progress(db, sub: Submission, message: str, level: str = "INFO") -> None:
 def run(submission_id: int) -> None:
     db = SessionLocal()
     sub = db.get(Submission, submission_id)
+    llm.run_id = f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}"
+    if config.RUN_LABEL:
+        llm.run_id += f"-{config.RUN_LABEL}"
     try:
         sub.status = "PROCESSING"
         reset_for_reprocess(db, sub)
@@ -69,7 +75,9 @@ def run(submission_id: int) -> None:
             progress(db, sub, f"Re-applied human decisions over {reapplied} re-extracted values")
         progress(db, sub, "Cross-checking values across documents")
         _cross_document_confirmation(db, sub.id)
-        _ifta_reconciliation(db, sub.id)
+        failed = _ifta_reconciliation(db, sub.id)
+        if failed and config.route("transcribe")[0] != config.ESCALATION_MODEL:
+            _escalate_ifta(db, sub, failed, known_drivers)
         db.commit()
 
         progress(db, sub, "Detecting conflicts and duplicates")
@@ -178,11 +186,16 @@ def _extract(db, sub, doc: Document, page: Page, page_ctx: dict, known_drivers: 
             if not facts:
                 facts, method = extract_page(page, page.doc_type, False, ctx), "llm_text"
         else:
-            use_image = page.text_source == "vision_transcript" or page.doc_type in FORM_TYPES
-            facts = extract_page(page, page.doc_type, use_image and bool(page.image_path), ctx)
-            # The model produced these values, so they get a model prior even when the page is a
-            # spreadsheet (D-21: the form-layout application sheet). "xlsx" means deterministic only.
+            # The model produced these values (as transcript or extraction), so they get a model prior
+            # even when the page is a spreadsheet (D-21). "xlsx" means deterministic only.
             method = "llm_vision" if page.text_source == "vision_transcript" else "llm_text"
+            facts = None
+            if page.doc_type == "IFTA_RETURN" and page.text_source == "vision_transcript":
+                facts = parse_ifta_page(page.text, page_ctx)  # D-31: table rows read by code
+                if facts:
+                    progress(db, sub, f"{doc.filename} p{page.page_no}: IFTA table parsed in code")
+            if not facts:
+                facts = _llm_extract(db, sub, doc, page, ctx)
     except llm.LLMError as exc:
         page.status, page.error = "MODEL_ERROR", str(exc)
         progress(db, sub, f"{doc.filename} p{page.page_no}: extraction MODEL_ERROR ({exc})", "ERROR")
@@ -205,6 +218,26 @@ def _extract(db, sub, doc: Document, page: Page, page_ctx: dict, known_drivers: 
                      evidence_verified=bool(ev.get("excerpt_in_source")), validation={**ev, **checks},
                      status=status))
     progress(db, sub, f"{doc.filename} p{page.page_no}: {len(facts)} values ({low} low confidence)")
+
+
+def _llm_extract(db, sub, doc, page, ctx):
+    """Extraction on the task's tier; one re-run on the escalation model if the result fails the code
+    checks (model error, or too many values whose excerpt isn't on the page)."""
+    use_image = (page.text_source == "vision_transcript" or page.doc_type in FORM_TYPES) and bool(page.image_path)
+    cheap = config.route("extract")[0] != config.ESCALATION_MODEL
+    try:
+        facts = extract_page(page, page.doc_type, use_image, ctx)
+    except llm.LLMError as exc:
+        if not cheap:
+            raise
+        reason = f"model error: {exc}"
+    else:
+        unverified = sum(not evidence.excerpt_in_source(f["excerpt"], page.text) for f in facts)
+        if not cheap or not facts or unverified / len(facts) <= ESCALATE_IF_UNVERIFIED:
+            return facts
+        reason = f"{unverified}/{len(facts)} excerpts not found on the page"
+    progress(db, sub, f"{doc.filename} p{page.page_no}: escalated to {config.ESCALATION_MODEL} ({reason})", "WARN")
+    return extract_page(page, page.doc_type, use_image, ctx, escalate=True, reason=reason)
 
 
 def _cross_document_confirmation(db, submission_id):
@@ -233,6 +266,7 @@ def _ifta_reconciliation(db, submission_id):
     fields = conflicts.active_fields(db, submission_id)
     rows = defaultdict(list)
     totals = {}
+    failed = []
     for f in fields:
         if f.entity_type == "ifta_row" and f.name == "total_miles":
             rows[f.entity_key.split(":")[1]].append(f)
@@ -249,3 +283,32 @@ def _ifta_reconciliation(db, submission_id):
                 f.confidence = max(f.confidence, 0.9)
                 f.status = "OK"
         log.info("ifta reconciliation", period=period, row_sum=row_sum, printed=printed, ok=ok)
+        if not ok:
+            failed.append(period)
+    return failed
+
+
+def _escalate_ifta(db, sub, periods, known_drivers):
+    """An IFTA return whose rows don't add up to its printed total was likely mis-transcribed: re-read
+    that document's scanned pages on the escalation model, replace its values, and re-check."""
+    fields = conflicts.active_fields(db, sub.id)
+    doc_ids = {f.page.document_id for f in fields if f.page and f.method == "llm_vision" and any(
+        f.entity_key in (f"ifta:{p}",) or f.entity_key.startswith(f"ifta_row:{p}:") for p in periods)}
+    for doc in (db.get(Document, i) for i in doc_ids):
+        reason = f"IFTA rows do not reconcile to the printed total ({', '.join(periods)})"
+        progress(db, sub, f"{doc.filename}: re-transcribing on {config.ESCALATION_MODEL} ({reason})", "WARN")
+        for f in db.query(Field).filter(Field.page_id.in_([pg.id for pg in doc.pages]), Field.method != "human",
+                                        Field.status != "REPLACED"):
+            f.status = "REPLACED"
+        page_ctx = {"doc_id": doc.id}
+        for page in doc.pages:
+            if page.text_source == "vision_transcript":
+                try:
+                    classify_page(page, {"submission_id": sub.id, "page_id": page.id}, escalate=True, reason=reason)
+                except llm.LLMError as exc:
+                    page.status, page.error = "MODEL_ERROR", str(exc)
+                    continue
+            _extract(db, sub, doc, page, page_ctx, known_drivers)
+    db.flush()
+    _cross_document_confirmation(db, sub.id)
+    _ifta_reconciliation(db, sub.id)

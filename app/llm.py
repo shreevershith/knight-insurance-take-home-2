@@ -7,6 +7,8 @@ runs repeatable.)
 import base64
 import hashlib
 import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
@@ -22,6 +24,19 @@ class LLMError(Exception):
 
 
 _client: anthropic.Anthropic | None = None
+run_id = ""  # set by the pipeline; every ledger line carries it so cost can be summed per run
+
+TIER_OF = {"classify_text": "classify", "classify_vision": "transcribe", "analyst": "analyst"}
+
+
+def tier_for(task: str) -> str:
+    return TIER_OF.get(task, "extract" if task.startswith("extract_") else "extract")
+
+
+def _ledger(**row) -> None:
+    row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id, **row}
+    with open(config.USAGE_LOG, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row) + "\n")
 
 
 def client() -> anthropic.Anthropic:
@@ -43,25 +58,34 @@ def image_block(path: str | Path) -> dict:
 
 
 def structured_call(*, task: str, system: str, content: list[dict], schema: dict,
-                    max_tokens: int = 16000, ctx: dict | None = None) -> dict:
-    """One request -> one JSON object matching `schema`. Raises LLMError on any failure."""
+                    max_tokens: int = 16000, ctx: dict | None = None, escalate: bool = False,
+                    reason: str = "") -> dict:
+    """One request -> one JSON object matching `schema`. Raises LLMError on any failure.
+
+    The model comes from the task's tier (config.route); escalate=True uses the escalation model
+    instead (a re-run after a cheap-tier result failed a code check; `reason` says which)."""
     ctx = ctx or {}
+    tier = tier_for(task)
+    model, effort = (config.ESCALATION_MODEL, config.ESCALATION_EFFORT) if escalate else config.route(tier)
     request = {
-        "model": config.CLAUDE_MODEL,
+        "model": model,
         "max_tokens": max_tokens,
         "system": system,
         "messages": [{"role": "user", "content": content}],
-        "output_config": {"effort": config.CLAUDE_EFFORT,
+        "output_config": {"effort": effort,
                           "format": {"type": "json_schema", "schema": schema}},
     }
     key = hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
     cache_path = config.CACHE_DIR / f"{task}_{key[:24]}.json"
+    meta = {"task": task, "tier": tier, "model": model, "effort": effort, "escalated": escalate,
+            "escalation_reason": reason}
     if cache_path.exists():
         log.info("llm cache hit", task=task, **ctx)
+        _ledger(**meta, cache_hit=True, input_tokens=0, output_tokens=0, cost_usd=0.0, seconds=0.0)
         return json.loads(cache_path.read_text(encoding="utf-8"))
 
     kwargs = dict(request)
-    if config.CLAUDE_FALLBACKS:
+    if config.supports_fallbacks(model):
         # Server-side refusal fallback. Not yet a typed SDK parameter in this SDK version.
         kwargs["betas"] = ["server-side-fallback-2026-07-01"]
         kwargs["extra_body"] = {"fallbacks": config.CLAUDE_FALLBACKS}
@@ -69,6 +93,7 @@ def structured_call(*, task: str, system: str, content: list[dict], schema: dict
     else:
         api = client().messages
 
+    started = time.monotonic()
     try:
         response = api.create(**kwargs)
     except anthropic.AuthenticationError as exc:
@@ -84,6 +109,10 @@ def structured_call(*, task: str, system: str, content: list[dict], schema: dict
     except anthropic.APIConnectionError as exc:
         raise LLMError(f"connection error: {exc}") from exc
 
+    usage = response.usage
+    _ledger(**meta, cache_hit=False, input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+            cost_usd=round(config.cost_usd(model, usage.input_tokens, usage.output_tokens), 5),
+            seconds=round(time.monotonic() - started, 1), stop_reason=response.stop_reason)
     if response.stop_reason == "refusal":
         raise LLMError("model declined the request")
     if response.stop_reason == "max_tokens":
@@ -96,7 +125,6 @@ def structured_call(*, task: str, system: str, content: list[dict], schema: dict
     except json.JSONDecodeError as exc:
         raise LLMError(f"invalid JSON from model: {exc}") from exc
 
-    usage = response.usage
     log.info("llm call", task=task, model=response.model, request_id=response._request_id,
              input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, **ctx)
     cache_path.write_text(json.dumps(data, indent=1), encoding="utf-8")

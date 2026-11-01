@@ -50,11 +50,17 @@ def build_context(db, sub: Submission) -> tuple[dict, set[str]]:
                                         RuleResult.run_id == run.run_id).all() if run else []
     ids = set()
     entities = {}
+    sources: dict[str, str] = {}  # "file p3" -> "S1": named once, not on every field
+    ifta_rows = []
     for f in fields:
+        if f.entity_type == "ifta_row":
+            ifta_rows.append(f)  # ~600 jurisdiction cells: summarized in code below (D-31)
+            continue
         ids.add(f"F{f.id}")
         src = f"{f.page.document.filename} p{f.page.page_no}" if f.page else "human override"
+        sid = sources.setdefault(src, f"S{len(sources) + 1}")
         entities.setdefault(f.entity_key, []).append(
-            {"id": f"F{f.id}", "field": f.name, "value": f.value, "source": src, "confidence": f.confidence})
+            {"id": f"F{f.id}", "field": f.name, "value": f.value, "src": sid, "conf": round(f.confidence, 2)})
     ids |= {f"C{c.id}" for c in conflicts} | {f"R{r.id}" for r in rules}
     from app.rules import derived
     from app.rules.view import SubmissionView
@@ -68,21 +74,50 @@ def build_context(db, sub: Submission) -> tuple[dict, set[str]]:
         "computed_in_code": {
             "tiv_cost_new_total": tiv["cost_new_total"], "stated_value_total": tiv["stated_value_total"],
             "units_missing_stated_value": tiv["units_missing_stated_value"],
-            "operating_states_from_ifta": sorted(states), "cdl_evidence_by_driver": cdl},
+            "operating_states_from_ifta": sorted(states), "cdl_evidence_by_driver": cdl,
+            "ifta_miles": _ifta_summary(ifta_rows, fields)},
         "rule_results": [{"id": f"R{r.id}", "rule": r.rule_id, "outcome": r.outcome, "message": r.message} for r in rules],
         "conflicts": [{"id": f"C{c.id}", "kind": c.kind, "entity": c.entity_key, "field": c.field_name,
                        "status": c.status, "values": [{"value": v["value"], "source": v["source"]} for v in c.values]}
                       for c in conflicts],
+        "sources": {sid: src for src, sid in sources.items()},
         "entities": entities,
     }
     return context, ids
+
+
+def _ifta_summary(rows, fields) -> dict:
+    """Per-quarter totals and miles by state over all returns, computed in code from the row values.
+    The analyst reads aggregates (and cites the return's total field) instead of every row."""
+    from collections import defaultdict
+    from app.extract.normalize import parse_number, state_code
+    by_state, by_period = defaultdict(float), defaultdict(float)
+    for f in rows:
+        if f.name == "total_miles":
+            period = f.entity_key.split(":")[1]
+            state = state_code(f.entity_key.split(":")[2].replace("-SURCHARGE", "")) or f.entity_key.split(":")[2]
+            miles = parse_number(f.value) or 0
+            by_state[state] += miles
+            by_period[period] += miles
+    quarters = {}
+    for f in fields:
+        if f.entity_type == "ifta" and f.name == "total_miles":
+            period = f.entity_key.split(":", 1)[1]
+            printed = parse_number(f.value)
+            quarters[period] = {"printed_total_miles": printed, "total_field": f"F{f.id}",
+                                "rows_sum": by_period.get(period),
+                                "rows_reconcile": printed is not None and abs(by_period.get(period, 0) - printed) < 0.5}
+    total = sum(by_state.values()) or 1
+    return {"quarters": dict(sorted(quarters.items())),
+            "miles_by_state_all_quarters": {k: {"miles": int(v), "share": round(v / total, 3)}
+                                            for k, v in sorted(by_state.items(), key=lambda kv: -kv[1]) if v}}
 
 
 def analyze(db, sub: Submission) -> dict:
     context, valid_ids = build_context(db, sub)
     data = llm.structured_call(
         task="analyst", system=SYSTEM, schema=SCHEMA, max_tokens=16000,
-        content=[{"type": "text", "text": "<submission_data>\n" + json.dumps(context, default=str) +
+        content=[{"type": "text", "text": "<submission_data>\n" + json.dumps(context, default=str, separators=(",", ":")) +
                   "\n</submission_data>"}], ctx={"submission_id": sub.id})
     for item in data["concerns"] + data["recommendations"]:
         cited = [e.strip() for e in item.get("evidence", [])]

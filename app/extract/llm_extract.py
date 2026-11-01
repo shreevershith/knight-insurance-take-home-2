@@ -57,7 +57,8 @@ def _field_guide(doc_type: str) -> str:
     return "\n".join(lines)
 
 
-def extract_page(page: Page, doc_type: str, use_image: bool, ctx: dict) -> list[dict]:
+def extract_page(page: Page, doc_type: str, use_image: bool, ctx: dict, escalate: bool = False,
+                 reason: str = "") -> list[dict]:
     """Returns [{group, entity_type, index, field, value, excerpt}]. Raises llm.LLMError."""
     content = []
     if use_image and page.image_path:
@@ -66,7 +67,8 @@ def extract_page(page: Page, doc_type: str, use_image: bool, ctx: dict) -> list[
         f"Document type: {doc_type}\nFields to extract:\n{_field_guide(doc_type)}\n\n"
         f"<page_text>\n{page.text}\n</page_text>")})
     data = llm.structured_call(task=f"extract_{doc_type.lower()}", system=SYSTEM, content=content,
-                               schema=build_schema(doc_type), ctx=ctx)
+                               schema=build_schema(doc_type), ctx=ctx,
+                               escalate=escalate, reason=reason)
     out = []
     for group, (entity_type, is_list, _) in SPEC[doc_type].items():
         items = data.get(group) or []
