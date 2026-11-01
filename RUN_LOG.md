@@ -17,7 +17,7 @@ Raw outputs of each experiment are in `eval/experiments/`.
 | E1 | 11/01 03:59 | `07dea67` | Opus 5.5 **low** for classify/transcribe/extract; analyst Opus medium | 36 | 667 s | **$1.39** | 61/61* | *Q1 2026 return silently lost its total (eval didn't check it) |
 | E2 | 11/01 04:10 | `07dea67` | **Sonnet 5.5** medium for classify/transcribe/extract + escalation | 39 | 258 s | **$0.85** | 61/61 | Clean on the eval, but 4 of 6 loss runs lacked their line of business (found in r2) |
 | E3 | 11/01 04:14 | `07dea67` | **Haiku 5.5** medium for classify/transcribe/extract + escalation | 40 | 280 s | **$0.26** | 60/61 | AL 24-25 loss run keyed `loss_run:?:…` (line of business not extracted) |
-| r2 ×4 | 11/01 04:21–04:24 | uncommitted → see D-31 | E0–E3 again after the three fixes below (pages from cache) | 1 each | ~60 s | $0.20–0.22 each | **63/63 all four** | Fixes hold. Sonnet and Haiku each escalated 4 loss runs to Opus |
+| r2 ×4 | 11/01 04:21–04:24 | `6a0b334` | E0–E3 again after the three fixes below (pages from cache) | 1 each | ~60 s | $0.20–0.22 each | **63/63 all four** | Fixes hold. Sonnet and Haiku each escalated 4 loss runs to Opus |
 
 ## Run 1: first real run (baseline)
 
