@@ -22,6 +22,8 @@ decision, the reasons, and an AI-written summary they can check.
   returns *not evaluated*, which refers and never passes.
 - **Review UI:** status and decision, a "To review" list, rule checks, conflicts, extracted values with their evidence
   and page image, corrections with a reason (rules re-run immediately), and a full audit log.
+- **Operations page (`/ops`):** failed or interrupted submissions, unreadable files, the job queue with attempts and
+  workers, and cost per run with the escalation rate (PLAN §5b-2).
 - **AI analyst:** summary, concerns and next actions, each citing the values it relies on; citations are verified.
 
 ## Run it
@@ -58,7 +60,7 @@ cost ledger are shared with local runs. `APP_PORT` picks another host port.
 ## Tests and evaluation
 
 ```bash
-.venv/Scripts/python -m pytest -q                                           # 71 tests, no API calls
+.venv/Scripts/python -m pytest -q                                           # 72 tests, no API calls
 .venv/Scripts/python eval/run_eval.py                                       # the case-study sample
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/desert_ridge_expected.json
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/bluestem_expected.json

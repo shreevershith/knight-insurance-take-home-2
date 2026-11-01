@@ -113,3 +113,16 @@ def test_page_calls_run_in_parallel_in_order_with_the_run_id(monkeypatch):
     assert time.monotonic() - started < 0.6                  # 4 x 0.2 s ran at once
     assert out[:2] == [0, 10] and isinstance(out[2], llm.LLMError) and out[3] == 30
     assert seen == {("sub9-test", True)}                     # ledger lines keep the job's run id
+
+
+def test_ops_page_lists_queue_failures_and_cost():
+    from fastapi.testclient import TestClient
+
+    from app.web.main import app
+    sid = _submission(status="FAILED")
+    _set(Submission, sid, step="Failed after 3 attempt(s): boom")
+    jobs.enqueue(sid)
+    page = TestClient(app).get("/ops")
+    assert page.status_code == 200
+    assert "Needs attention" in page.text and "Failed after 3 attempt(s): boom" in page.text
+    assert f"#{sid}" in page.text and "Cost per run" in page.text

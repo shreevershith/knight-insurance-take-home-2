@@ -86,6 +86,9 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 input[type=text], input[type=search], textarea, select { width: 100%; border: 1px solid var(--line-2); border-radius: var(--r); padding: 8px 11px; background: var(--surface); }
 input[type=text]:focus, input[type=search]:focus, textarea:focus, select:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px rgba(17,17,17,.06); }
 
+.toplink { font-size: 13px; color: var(--ink-2); text-decoration: none; margin-right: 14px; }
+.toplink:hover { text-decoration: underline; }
+
 /* ---------- pills ---------- */
 .pill { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border: 1px solid var(--gray-ln); border-radius: 2px;
         font: 600 11px/1.5 var(--sans); letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; color: var(--gray); background: var(--gray-bg); }
@@ -95,8 +98,8 @@ input[type=text]:focus, input[type=search]:focus, textarea:focus, select:focus {
 .DECLINE, .ERROR, .MODEL_ERROR, .UNREADABLE, .FAILED, .INTERRUPTED, .high { color: var(--flag); background: var(--flag-bg); border-color: var(--flag-ln); }
 .REFER, .LOW_CONFIDENCE, .OPEN, .CONFLICT, .medium { color: var(--unk); background: var(--unk-bg); border-color: var(--unk-ln); }
 .FLAG, .NOT_EVALUATED, .UNCLASSIFIED, .UNSUPPORTED, .SKIPPED, .SUPERSEDED, .DUPLICATE, .CONTAINER, .PENDING, .low, .neutral { color: var(--gray); background: var(--gray-bg); border-color: var(--gray-ln); }
-.PROCESSING, .RECEIVED { color: var(--ink-2); background: var(--surface); border-color: var(--line-2); }
-.PROCESSING::before, .RECEIVED::before { animation: blink 1.2s ease-in-out infinite; }
+.PROCESSING, .RECEIVED, .QUEUED, .RUNNING { color: var(--ink-2); background: var(--surface); border-color: var(--line-2); }
+.PROCESSING::before, .RECEIVED::before, .QUEUED::before, .RUNNING::before { animation: blink 1.2s ease-in-out infinite; }
 .human, .OVERRIDE { color: var(--ovr); background: var(--ovr-bg); border-color: var(--ovr-ln); }
 @keyframes blink { 50% { opacity: .25; } }
 
@@ -161,6 +164,7 @@ mark { background: transparent; color: inherit; border-bottom: 2px solid var(--u
     <span class="sep" aria-hidden="true">/</span>
     <span class="brand-sub">Commercial auto · trucking program submissions</span>
     <div class="spacer"></div>
+    <a class="toplink" href="/ops">Operations</a>
     <span class="model" title="Model per task. A cheap model's result that fails a code check is re-run on Opus."><span class="mk">Models</span><span class="dot ok"></span>{{ model_chip() }}</span>
   </div>
 </header>

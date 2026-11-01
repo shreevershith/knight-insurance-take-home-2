@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block head %}
+<style>
+.counts { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); margin: 14px 0 18px; }
+.counts div { background: var(--surface); padding: 12px 14px; }
+.counts b { display: block; font: 500 26px/1.1 var(--serif); }
+.counts span { font-size: 12px; color: var(--muted); }
+dl.set { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; margin: 0; }
+dl.set dt { color: var(--muted); } dl.set dd { margin: 0; font-family: var(--mono); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.why { color: var(--ink-2); font-size: 12.5px; max-width: 420px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+section + section { margin-top: 36px; }
+</style>
+{% endblock %}
+
+{% block side %}
+<div class="eyebrow">Operations</div>
+<h2>Queue and health</h2>
+<div class="counts">
+  {% for st in ('QUEUED', 'RUNNING', 'DONE', 'FAILED') %}<div><b>{{ job_counts.get(st, 0) }}</b><span>{{ st|lower }} jobs</span></div>{% endfor %}
+</div>
+<dl class="set">
+  {% for k, v in settings.items() %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}
+  <dt>Escalation rate</dt><dd>{{ '%.0f'|format(escalation_rate * 100) }}% of fresh calls</dd>
+</dl>
+<p class="note" style="margin-top:16px">Read-only. Retries and takeovers are automatic; a person acts on what is listed under
+  <b>Needs attention</b>: reprocess a failed submission, or ask the agent for a file that couldn't be read.</p>
+<p style="margin-top:14px"><a class="btn sm" href="/">Back to submissions</a></p>
+{% endblock %}
+
+{% block body %}
+<section>
+  <div class="sec-hd"><h2>Needs attention</h2><span class="aside">failed or interrupted submissions, and files or pages the system couldn't read</span></div>
+  {% if not failed_subs and not attention %}<div class="allclear"><span class="tick">✓</span>Nothing needs attention.</div>{% endif %}
+  {% if failed_subs %}<div class="tbl"><table>
+    <tr><th>Submission</th><th>Status</th><th>Last step</th></tr>
+    {% for s in failed_subs %}<tr><td><a href="/submissions/{{ s.id }}">#{{ s.id }}</a> {{ s.subject }}</td>
+      <td><span class="pill {{ s.status }}">{{ s.status }}</span></td><td class="why">{{ s.step }}</td></tr>{% endfor %}
+  </table></div>{% endif %}
+  {% if attention %}<div class="tbl"><table>
+    <tr><th>Submission</th><th>File / page</th><th>Status</th><th>Why</th></tr>
+    {% for a in attention %}<tr><td><a href="/submissions/{{ a.sub }}">#{{ a.sub }}</a></td><td class="mono">{{ a.file }}</td>
+      <td><span class="pill {{ a.status }}">{{ a.status }}</span></td><td class="why">{{ a.why|truncate(140) }}</td></tr>{% endfor %}
+  </table></div>{% endif %}
+</section>
+
+<section>
+  <div class="sec-hd"><h2>Job queue</h2><span class="aside">latest 20; workers take jobs with SKIP LOCKED and hold a lease</span></div>
+  {% if jobs %}<div class="tbl"><table>
+    <tr><th>Job</th><th>Submission</th><th>Kind</th><th>Status</th><th class="num">Attempt</th><th>Worker</th><th>Error</th></tr>
+    {% for j in jobs %}<tr><td class="mono">{{ j.id }}</td>
+      <td><a href="/submissions/{{ j.submission_id }}">#{{ j.submission_id }}</a> <span class="muted small">{{ (subjects.get(j.submission_id) or '')|truncate(48) }}</span></td>
+      <td>{{ j.kind }}</td><td><span class="pill {{ j.status }}">{{ j.status }}</span></td>
+      <td class="num">{{ j.attempts }} / {{ j.max_attempts }}</td><td class="mono">{{ j.worker or '–' }}</td>
+      <td class="why">{{ j.error|truncate(100) if j.error else '' }}</td></tr>{% endfor %}
+  </table></div>{% else %}<p class="muted">No queued jobs yet{% if settings['Job mode'] != 'queue' %}: this process runs jobs in-process (JOB_MODE=thread){% endif %}.</p>{% endif %}
+</section>
+
+<section>
+  <div class="sec-hd"><h2>Cost per run</h2><span class="aside">from the cost ledger, latest 15 runs; cached calls cost nothing</span></div>
+  {% if runs %}<div class="tbl"><table>
+    <tr><th>Run</th><th class="num">Calls</th><th class="num">Cached</th><th class="num">Escalated</th><th class="num">Model time</th><th class="num">Cost</th></tr>
+    {% for r in runs %}<tr><td class="mono">{{ r.run_id }}</td><td class="num">{{ r.calls }}</td><td class="num">{{ r.cached }}</td>
+      <td class="num">{{ r.escalated }}</td><td class="num">{{ '%.0f'|format(r.seconds) }} s</td><td class="num">${{ '%.2f'|format(r.cost) }}</td></tr>{% endfor %}
+  </table></div>{% else %}<p class="muted">No model calls recorded yet.</p>{% endif %}
+</section>
+{% endblock %}

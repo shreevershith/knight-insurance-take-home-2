@@ -1,6 +1,6 @@
 # Knight Insurance – Commercial Auto Intake Prototype: PLAN
 
-Status (11/01/2026): **built and running.** Branch `build`; the pipeline runs end to end on the sample on PostgreSQL 18 (D-33); all 42 guideline rules are implemented; eval 87/87 on the sample (a regression check) and on two held-out submissions: 49/72 (first measurement; 72/72 after fixes, D-34) and 64/70 (second, run once on unchanged code, decision correct; 69/70 after fixes); 71 tests; code-review fixes D-35; queue, workers and parallel page calls D-36. Section 5b below is a claims check against the code. Every file in `candidate_materials/` was read by hand (text layers extracted, all image-only pages rendered and viewed).
+Status (11/01/2026): **built and running.** Branch `build`; the pipeline runs end to end on the sample on PostgreSQL 18 (D-33); all 42 guideline rules are implemented; eval 87/87 on the sample (a regression check) and on two held-out submissions: 49/72 (first measurement; 72/72 after fixes, D-34) and 64/70 (second, run once on unchanged code, decision correct; 69/70 after fixes); 72 tests; code-review fixes D-35; queue, workers and parallel page calls D-36. Section 5b below is a claims check against the code. Every file in `candidate_materials/` was read by hand (text layers extracted, all image-only pages rendered and viewed).
 The decisions log lives in [DECISIONS.md](DECISIONS.md): D-01 to D-33 are DECIDED (D-23 superseded by D-31). Every real model run and its cost is in [RUN_LOG.md](RUN_LOG.md).
 
 Reference dates used below: application date **10/22/2026** (KNIGHT.xlsx E7), requested effective date **12/15/2026**, today **10/31/2026**.
@@ -36,7 +36,7 @@ Reference dates used below: application date **10/22/2026** (KNIGHT.xlsx E7), re
 - [ ] Rules and workflow: how rules are maintained, how AI output feeds rules, exceptions, auditability
 - [ ] Scalability and reliability at production scale
 - [ ] Security and compliance: sensitive data, access control, encryption, audit logging, regulation
-- [ ] UX for underwriters and operations teams
+- [x] UX for underwriters and operations teams (built: §5b-2)
 - [ ] High-level solution, design decisions, **assumptions, risks, tradeoffs**
 - [ ] **Clarifying questions I would ask, and the assumptions I made in their place**
 - [ ] Real-world handling: poor-quality docs, missing info, conflicting data, scale
@@ -349,6 +349,7 @@ flowchart LR
 | Eval harness | Measure extraction and rule accuracy, catch regressions on model or prompt change | Before the first model swap. Grows with every corrected field (overrides become labels). |
 | Cost control | Text layer first (free) → cheap model → stronger model only on low confidence; cache by page hash | Once LLM spend per submission is measurable |
 | Security | SSO/RBAC (agent, ops, UW, admin), encryption at rest and in transit, PII redaction, data-residency LLM endpoint, retention | Before any real PII is processed (GLBA, state privacy laws such as CCPA, DPPA for MVRs, FCRA for consumer reports) |
+| Compliance program (insurer-specific) | **NAIC Insurance Data Security Model Law (#668)**, adopted by most states (NYDFS 23 NYCRR 500 in New York): a written information security program based on a risk assessment; **oversight of third-party service providers**, which here includes the LLM vendor (a data processing agreement, no training on our data, zero or short retention, a US data-residency endpoint) and the cloud host; notifying the insurance commissioner of a cybersecurity event within **72 hours**; an incident response plan; annual certification. MVRs: DPPA permissible use (insurance underwriting) and access logged per view. Consumer reports (MVRs, claims history): FCRA adverse-action notices when a decline relies on them, which the decline reasons and the audit trail support. E&S placement: the agent's surplus-lines filing obligations stay with the agent | Before production, with legal and compliance |
 | FMCSA SAFER/SMS + geo lookups | PRO-03 border and PRO-05 SAFER rules | When these rules must auto-resolve instead of refer |
 
 ### 5a-2. Cloud and LLM services
@@ -431,6 +432,25 @@ Stack (as built): Python 3.12 · FastAPI · **PostgreSQL 18** through SQLAlchemy
 **Never cut:** evidence on values, conflicts list, deterministic rules, failure states, scanned IFTA + DL photo extraction. These are the story of the video.
 
 ---
+
+## 5b-2. User experience: underwriters and operations
+
+**Underwriters** (`/submissions/{id}`), built. One page per submission, in the order a reviewer works:
+1. **Status and decision** at the top: READY TO QUOTE / REFER / DECLINE, the team (Small Fleet or Fleet), and the reasons in plain words.
+2. **To review**: the short list that needs a person (open conflicts, rules that refer, low-confidence values), each linking to its place on the page.
+3. **AI summary**: summary, concerns and next actions, each with a confidence and the values it cites. Marked *out of date* after a human change until re-run, and labelled advisory: it never decides.
+4. **Rule checks**: all 42 rules with the guideline clause, the values used, and what changed since the last run ("was REFER").
+5. **Conflicts**: every source value side by side with a suggestion; the underwriter picks one with a reason.
+6. **Extracted values**, grouped (applicant, drivers, MVR history, vehicles, loss history, IFTA as compact tables), each with the line it was read from and **View page** for the scanned or photographed page.
+7. **Corrections and audit**: change a value or resolve a conflict with a required reason; the rules re-run at once and the audit log records who, what, before/after and why.
+
+**Operations** (`/ops`), built, read-only. The team that keeps intake running needs a different view: not one submission, but what is stuck and what it costs.
+- **Needs attention**: submissions that FAILED (after their retries) or were INTERRUPTED, and files or pages that couldn't be read (corrupt PDF, unsupported `.docx`, MODEL_ERROR, UNREADABLE, UNCLASSIFIED), each with the reason. Their action: reprocess, or ask the agent for a readable copy.
+- **Job queue**: queued / running / done / failed counts, and each job's attempt number and worker, so a takeover after a worker died is visible (e.g. attempt 2 of 3).
+- **Cost per run**: calls, cache hits, escalations to Opus, model time and cost, plus the escalation rate; a rising escalation rate is the first sign a cheap model is struggling with a new document layout (D-31).
+- Settings in effect: job mode, page calls at a time, lease, max attempts.
+
+**Designed, not built:** role-based access (agents see only their own submissions' status; ops can reprocess but not change values; underwriters decide; admins edit rules); an intake inbox view with SLA timers per submission; alerts when the failed count or escalation rate crosses a threshold; agent-facing "missing documents" requests drafted from the REFER reasons.
 
 ## 5c. Video plan (5–15 min)
 

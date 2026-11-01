@@ -1,4 +1,5 @@
 """Underwriter web app."""
+import json
 import re
 from datetime import timezone
 import threading
@@ -15,8 +16,8 @@ from fastapi.templating import Jinja2Templates
 from app import config, jobs, pipeline, review
 from app.config import data_path
 from app.web.labels import entity_labels, label_for
-from app.db import (AuditEvent, Conflict, Document, Field, JobLog, Page, RuleResult, SessionLocal, Submission,
-                    audit, init_db)
+from app.db import (AuditEvent, Conflict, Document, Field, Job, JobLog, Page, RuleResult, SessionLocal, Submission,
+                    audit, init_db, utcnow)
 from app.intake import ingest_eml, ingest_files
 from app.log import setup_logging
 
@@ -141,6 +142,55 @@ def index(request: Request):
         return templates.TemplateResponse(request, "index.html", {
             "subs": subs, "llm_ok": config.llm_configured(), "companies": companies, "open_counts": open_counts,
             "routes": {t: config.route(t)[0].replace("claude-", "") for t in config.TIERS}})
+
+
+def _cost_runs(limit: int = 15) -> list[dict]:
+    """Recent runs from the cost ledger: calls, cache hits, escalations, model time and cost per run."""
+    runs: dict[str, dict] = {}
+    try:
+        lines = config.USAGE_LOG.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        run = runs.setdefault(r.get("run_id") or "(no run id)", {"run_id": r.get("run_id") or "(no run id)", "at": r["at"],
+                                                                 "calls": 0, "cached": 0, "escalated": 0, "seconds": 0.0, "cost": 0.0})
+        run["calls"] += 1
+        run["cached"] += bool(r.get("cache_hit"))
+        run["escalated"] += bool(r.get("escalated"))
+        run["seconds"] += r.get("seconds") or 0.0
+        run["cost"] += r.get("cost_usd") or 0.0
+    return sorted(runs.values(), key=lambda r: r["at"], reverse=True)[:limit]
+
+
+@app.get("/ops", response_class=HTMLResponse)
+def ops(request: Request):
+    """Operations view (read-only): the job queue, what needs attention, and cost per run."""
+    with SessionLocal() as db:
+        job_counts = dict(db.query(Job.status, func.count()).group_by(Job.status))
+        recent_jobs = db.query(Job).order_by(Job.id.desc()).limit(20).all()
+        subjects = {sid: subject for sid, subject in db.query(Submission.id, Submission.subject)}
+        failed_subs = (db.query(Submission).filter(Submission.status.in_(("FAILED", "INTERRUPTED")))
+                       .order_by(Submission.id.desc()).all())
+        bad_pages = (db.query(Page).join(Document).filter(Page.status.in_(("MODEL_ERROR", "UNREADABLE", "UNCLASSIFIED")))
+                     .order_by(Page.id.desc()).limit(40).all())
+        bad_docs = (db.query(Document).filter(Document.status.in_(("UNREADABLE", "UNSUPPORTED")))
+                    .order_by(Document.id.desc()).limit(40).all())
+        attention = ([{"sub": p.document.submission_id, "file": f"{p.document.filename} p{p.page_no}", "status": p.status,
+                       "why": p.error or p.classify_reason or ""} for p in bad_pages]
+                     + [{"sub": d.submission_id, "file": d.filename, "status": d.status, "why": d.error or ""} for d in bad_docs])
+        runs = _cost_runs()
+        priced = [r for r in runs if r["calls"] > r["cached"]]
+        return templates.TemplateResponse(request, "ops.html", {
+            "job_counts": job_counts, "jobs": recent_jobs, "subjects": subjects, "failed_subs": failed_subs,
+            "attention": sorted(attention, key=lambda a: -a["sub"]), "runs": runs,
+            "escalation_rate": (sum(r["escalated"] for r in priced) / max(1, sum(r["calls"] - r["cached"] for r in priced))),
+            "settings": {"Job mode": config.JOB_MODE, "Page calls at a time": config.LLM_CONCURRENCY,
+                         "Lease": f"{config.JOB_LEASE_SECONDS}s", "Max attempts": config.JOB_MAX_ATTEMPTS},
+            "now": _utc_iso(utcnow())})
 
 
 @app.post("/submissions")
