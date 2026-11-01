@@ -24,10 +24,14 @@ CLAUDE_EFFORT = _env("CLAUDE_EFFORT", "medium")
 CLAUDE_FALLBACKS = _env("CLAUDE_FALLBACKS", "default")
 LLM_TIMEOUT_SECONDS = float(_env("LLM_TIMEOUT_SECONDS", "180"))
 
-# Per-task model routing (D-31). Every tier defaults to CLAUDE_MODEL / CLAUDE_EFFORT; override one tier
-# with LLM_MODEL_<TIER> / LLM_EFFORT_<TIER>. A cheap-tier result that fails a code check is re-run on
-# the escalation model, so a cheaper model can only cost a re-run, never a silently wrong value.
+# Per-task model routing (D-31, measured $0.62/submission vs $2.37 on Opus everywhere). The model fits
+# how well code can check the task: classify/extract are verified against the page (cheap model),
+# transcribing scans is only partly checkable (mid model), the analyst is judgment (CLAUDE_MODEL).
+# Override one tier with LLM_MODEL_<TIER> / LLM_EFFORT_<TIER>. A cheap-tier result that fails a code
+# check is re-run on the escalation model, so a cheaper model can cost a re-run, not a wrong value.
 TIERS = ("classify", "transcribe", "extract", "analyst")
+TIER_DEFAULTS = {"classify": "claude-haiku-5-5", "transcribe": "claude-sonnet-5-5",
+                 "extract": "claude-haiku-5-5", "analyst": CLAUDE_MODEL}
 RUN_LABEL = _env("LLM_RUN_LABEL")  # tags ledger lines for an experiment, e.g. "haiku"
 ESCALATION_MODEL = _env("LLM_ESCALATION_MODEL", "claude-opus-5-5")
 ESCALATION_EFFORT = _env("LLM_ESCALATION_EFFORT", "medium")
@@ -38,7 +42,7 @@ PRICES = {"claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0), "cla
 def route(tier: str) -> tuple[str, str]:
     """(model, effort) for a task tier."""
     t = tier.upper()
-    return _env(f"LLM_MODEL_{t}", CLAUDE_MODEL), _env(f"LLM_EFFORT_{t}", CLAUDE_EFFORT)
+    return _env(f"LLM_MODEL_{t}", TIER_DEFAULTS[tier]), _env(f"LLM_EFFORT_{t}", CLAUDE_EFFORT)
 
 
 def supports_fallbacks(model: str) -> bool:

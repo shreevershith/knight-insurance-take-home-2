@@ -45,7 +45,11 @@ def test_ifta_parser_gives_up_rather_than_guess():
 
 
 def test_routing_defaults_and_overrides(monkeypatch):
-    assert config.route("extract") == (config.CLAUDE_MODEL, config.CLAUDE_EFFORT)
+    # D-31 defaults: model per task
+    assert config.route("classify")[0] == "claude-haiku-5-5"
+    assert config.route("transcribe")[0] == "claude-sonnet-5-5"
+    assert config.route("extract")[0] == "claude-haiku-5-5"
+    assert config.route("analyst")[0] == config.CLAUDE_MODEL
     monkeypatch.setenv("LLM_MODEL_TRANSCRIBE", "claude-haiku-5-5")
     monkeypatch.setenv("LLM_EFFORT_TRANSCRIBE", "low")
     assert config.route("transcribe") == ("claude-haiku-5-5", "low")

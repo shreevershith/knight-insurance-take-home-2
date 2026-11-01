@@ -18,7 +18,8 @@ Raw outputs of each experiment are in `eval/experiments/`.
 | E2 | 11/01 04:10 | `07dea67` | **Sonnet 5.5** medium for classify/transcribe/extract + escalation | 39 | 258 s | **$0.85** | 61/61 | Clean on the eval, but 4 of 6 loss runs lacked their line of business (found in r2) |
 | E3 | 11/01 04:14 | `07dea67` | **Haiku 5.5** medium for classify/transcribe/extract + escalation | 40 | 280 s | **$0.26** | 60/61 | AL 24-25 loss run keyed `loss_run:?:…` (line of business not extracted) |
 | r2 ×4 | 11/01 04:21–04:24 | `6a0b334` | E0–E3 again after the three fixes below (pages from cache) | 1 each | ~60 s | $0.20–0.22 each | **63/63 all four** | Fixes hold. Sonnet and Haiku each escalated 4 loss runs to Opus |
-| **M1** | 11/01 04:36 | this commit | **Per-task mix:** classify Haiku · transcribe **Sonnet** · extract Haiku (→ Opus on failed check) · analyst Opus. **Empty cache: every call measured** | 41 (5 escalated) | 300 s | **$0.62** | **63/63** | Recommended default. 7/7 IFTA tables parsed in code |
+| **M1** | 11/01 04:36 | `3f6da31` | **Per-task mix:** classify Haiku · transcribe **Sonnet** · extract Haiku (→ Opus on failed check) · analyst Opus. **Empty cache: every call measured** | 41 (5 escalated) | 300 s | **$0.62** | **63/63** | Recommended default. 7/7 IFTA tables parsed in code |
+| D1 | 11/01 04:45 | this commit | **Defaults, no overrides**, after D-31 was decided (per-task mix in `TIER_DEFAULTS`) | 7 new + 33 cached (4 escalations, from cache) | ~90 s | $0.21 (mostly the analyst) | **63/63** | Confirms the app uses the mix by default: classify/extract Haiku, transcribe Sonnet, analyst Opus |
 
 ## Run 1: first real run (baseline)
 
@@ -220,3 +221,7 @@ Every stored transcript from all four models (28 table pages) was replayed throu
 1. **A held-out set**, the open item from D-19: other carriers' loss runs, another state's IFTA return, phone photos and a bad scan, all built from scratch rather than edited copies of this sample. Calibrate the 20% threshold and the confidence priors on it.
 2. **Shadow mode in production:** run the mix and Opus side by side on a slice of real traffic, and switch when they agree.
 3. **Monitor the escalation rate.** A rising rate means the cheap tier is drifting.
+
+## Decision (11/01)
+
+The user approved the per-task mix as the default. D-31 is now DECIDED and implemented in `app/config.py` (`TIER_DEFAULTS`). To compare against Opus everywhere, set `LLM_MODEL_<TIER>=claude-opus-5-5`.
