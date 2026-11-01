@@ -400,3 +400,17 @@ By tier in PAR1: transcription 13 calls (73 s of model time, $0.229), extraction
 escalated to Opus for a missing line of business, as in earlier runs), classification 2, analyst 1 (43 s, $0.213). The
 total model work is about the same; it now overlaps. The analyst is now 43 of the 97 seconds: it reads every value, so
 it can't start earlier. The cost difference is run-to-run variation in output length, not a saving from parallelism.
+
+### Handwriting (HW1, 11/01)
+
+A phone photo of a handwritten agent note (`samples/handwritten_note.jpeg`, written by hand for this test, fictitious
+details; not in git) uploaded on its own to the Docker app (queue mode). Expected values written down before the run:
+Maria Lopez, DOB 04/12/1998, CDL Class A, CA license B4419027, hired 9/2026, 6 years CDL experience.
+
+- Transcript (Sonnet): "Pls add driver - Maria Lopez; DOB 04/12/1998, CDL Class A, CA lic B4419027, hired 9/2026, 6 yrs
+  CDL exp. MVR to follow - Dave". Word for word, including the hard-to-read first name.
+- Classified DRIVER_SCHEDULE (confidence 0.55, just above the 0.5 cut-off: a free-form note is not a schedule layout).
+- **10 of 10 values correct**, keyed to the license number; every excerpt verified on the page. All LOW_CONFIDENCE
+  (0.75): a handwritten photo can't be confirmed by code, so the guard turns rules that rely on them into "needs review".
+- Decision REFER: the AI summary says the package holds only this note and lists what's missing. Cost **$0.068**
+  (3 calls: transcription, extraction, analyst).

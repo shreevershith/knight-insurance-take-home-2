@@ -19,7 +19,7 @@ Reference dates used below: application date **10/22/2026** (KNIGHT.xlsx E7), re
 
 ### 1.2 Real-world conditions it must handle
 - [x] Misleading or wrong file names: classify by content, not by name
-- [x] Mixed formats: digital PDFs, photographed PDFs, scans, images, handwriting  (handwriting: read by the same vision step, but no handwritten page in any test set, so not demonstrated)
+- [x] Mixed formats: digital PDFs, photographed PDFs, scans, images, handwriting  (handwriting: a phone photo of a handwritten agent note, every value read correctly; RUN_LOG HW1)
 - [x] Duplicate information across documents
 - [x] Conflicting information: vehicle counts, DL vs MVR, business info, dates, VINs, addresses, policy info
 
