@@ -347,3 +347,13 @@ and the rules were re-run on the stored submissions (sample #7, held-out #3 and 
 rule outcome or cited-value count changed. The extraction-time fixes (IFTA re-read keeps continuation pages, empty
 cheap-tier extraction escalates, human decisions re-applied after the re-read, separate keys for policies sharing a
 term) are tested with synthetic pages; a fresh pipeline run would exercise them on real input.
+
+### Reprocess after the code-review fixes (CR2, 11/01)
+
+Held-out #1 (Desert Ridge, submission 3) reprocessed end to end on the fixed code, run `sub3-20261101T163634-cr1-reprocess`.
+**72/72, DECLINE, Small Fleet**, as before. Cost **$0.143**: every extraction call was a cache hit (same model output as
+HO2), and the only new call was the AI analyst on Opus. No escalations fired: the image-only IFTA return
+(`fuel_tax_Q1.pdf`, 51 values) reconciled to its printed total on the first pass, so all 51 values went from
+LOW_CONFIDENCE to OK. No page came back empty. So the run confirms the fixed code runs cleanly on real input, but this
+submission doesn't trigger the IFTA re-read, empty-page escalation or same-term policy cases; those stay covered by
+`tests/test_review_fixes.py` only.
