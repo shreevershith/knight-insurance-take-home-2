@@ -1,4 +1,5 @@
 """Underwriter web app."""
+import re
 import threading
 from collections import defaultdict
 from pathlib import Path
@@ -46,6 +47,64 @@ def _stage(logs) -> int:
             if entry.message.startswith(prefix):
                 current = i
     return current
+
+
+# Extracted values grouped by kind for the page (entity-key prefix -> group).
+VALUE_GROUPS = [("Applicant, coverage & operations", ("applicant", "coverage", "operations", "commodity")),
+                ("Drivers", ("driver",)), ("MVR history", ("violation", "license_event")), ("Vehicles", ("vehicle",)),
+                ("Loss history & prior insurance", ("loss_run", "claim", "prior_policy")),
+                ("IFTA fuel-tax returns", ("ifta",)), ("Notes from spreadsheets", ("sheet_note",))]
+IFTA_COLUMNS = ["jurisdiction", "surcharge", "total_miles", "taxable_miles", "tax_paid_gallons", "total"]
+
+
+def _group_values(entities: dict) -> tuple[list, dict]:
+    """[(label, [(entity_key, fields)])] in a fixed order, plus IFTA jurisdiction rows per quarter as
+    table rows ({column: field}), so ~600 row values show as four compact tables."""
+    groups = {label: [] for label, _ in VALUE_GROUPS}
+    groups["Other"] = []
+    ifta_rows: dict[str, list] = defaultdict(list)
+    for key, items in entities.items():
+        kind = key.split(":", 1)[0]
+        if kind == "ifta_row":
+            period = key.split(":")[1]
+            ifta_rows[period].append({"key": key, "cells": {f.name: f for f in items},
+                                      "low": any(f.status == "LOW_CONFIDENCE" for f in items)})
+            continue
+        label = next((lab for lab, kinds in VALUE_GROUPS if kind in kinds), "Other")
+        groups[label].append((key, items))
+    return [(label, rows) for label, rows in groups.items() if rows], dict(ifta_rows)
+
+
+def _summary_blocks(text: str) -> list[tuple[str, object]]:
+    """AI summary -> [("lead", sentence), ("p", text), ("ul", [items])]. The model sometimes writes
+    lists as '- item' lines or inline ': - a - b'; render those as real lists."""
+
+    text = (text or "").strip()
+    m = re.match(r"(.{40,}?[.!?])\s+(.*)", text, re.S)
+    lead, rest = (m.group(1), m.group(2)) if m else (text, "")
+    blocks: list = [("lead", lead)]
+    for para in rest.splitlines():
+        para = para.strip()
+        if not para:
+            continue
+        if para.startswith("- "):
+            if blocks[-1][0] == "ul":
+                blocks[-1][1].append(para[2:])
+            else:
+                blocks.append(("ul", [para[2:]]))
+        elif ": - " in para:
+            head, items = para.split(": - ", 1)
+            blocks.append(("p", head + ":"))
+            blocks.append(("ul", [i.strip() for i in re.split(r"\s-\s", items) if i.strip()]))
+        else:
+            # a long paragraph reads better as short ones (three sentences each)
+            sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z])", para)
+            for i in range(0, len(sentences), 3):
+                blocks.append(("p", " ".join(sentences[i:i + 3])))
+    return blocks
+
+
+templates.env.filters["summary_blocks"] = _summary_blocks
 
 
 def _back(url: str, message: str, anchor: str = "") -> RedirectResponse:
@@ -118,12 +177,15 @@ def show(request: Request, sub_id: int):
         for f in fields:
             entities[f.entity_key].append(f)
         field_by_id = {f.id: f for f in fields}
+        value_groups, ifta_rows = _group_values(dict(entities))
         pages = {p.id: p for d in docs for p in d.pages}
         return templates.TemplateResponse(request, "submission.html", {
             "sub": sub, "docs": docs, "logs": logs, "entities": dict(entities), "conflicts": conflicts,
             "rules": rules, "audits": audits, "replaced": replaced, "field_by_id": field_by_id, "pages": pages,
             "running": sub.status in ("RECEIVED", "PROCESSING"), "stages": STAGES, "stage": _stage(logs),
             "low_confidence": sum(f.status == "LOW_CONFIDENCE" for f in fields),
+            "value_groups": value_groups, "ifta_rows": ifta_rows,
+            "ifta_columns": IFTA_COLUMNS,
             "company": next((f.value for f in sorted(fields, key=lambda f: f.method != "human")
                              if f.entity_key == "applicant" and f.name == "business_name"
                              and f.status in ("OK", "LOW_CONFIDENCE")), ""),

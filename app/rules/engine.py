@@ -224,7 +224,10 @@ def _per_driver(v, check) -> Result:
         ids += fids
         label = f"{derived.driver_label(v, key)}: {msg}"
         (ok if status else fails if status is False else unknown).append(label)
-    message = "; ".join(fails + unknown + ok)  # every driver shown, problems first
+    # every driver shown, problems first; " | OK: " separates the drivers that pass (the UI shortens there)
+    message = "; ".join(fails + unknown)
+    if ok:
+        message += (" | OK: " if message else "") + "; ".join(ok)
     if fails:
         return Result(False, message, ids)
     if unknown:
