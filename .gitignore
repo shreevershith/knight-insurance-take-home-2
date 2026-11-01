@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+.pytest_cache/
+
+# Case-study materials and the generated sample email stay local (not ours to publish)
+candidate_materials/
+samples/

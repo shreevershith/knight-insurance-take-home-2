@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Knight Intake{% endblock %}</title>
+{% block head %}{% endblock %}
+<style>
+  :root { --fg:#1d2433; --muted:#5b6474; --line:#dde2ea; --bg:#f6f7f9; --card:#fff;
+          --decline:#b42318; --refer:#b54708; --pass:#067647; --flag:#175cd3; --ne:#6941c6; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--fg); background:var(--bg); }
+  header { background:#101828; color:#fff; padding:10px 20px; display:flex; gap:16px; align-items:center; }
+  header a { color:#fff; text-decoration:none; font-weight:600; }
+  main { max-width:1400px; margin:0 auto; padding:16px 20px 60px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin:12px 0; }
+  h1 { font-size:20px; margin:4px 0 8px; } h2 { font-size:16px; margin:0 0 10px; } h3 { font-size:14px; margin:10px 0 6px; }
+  table { border-collapse:collapse; width:100%; } th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  .muted { color:var(--muted); } .small { font-size:12px; } code { font-size:12px; background:#f2f4f7; padding:1px 4px; border-radius:4px; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600; color:#fff; }
+  .DECLINE { background:var(--decline); } .REFER { background:var(--refer); } .PASS, .READY_TO_QUOTE, .OK, .RESOLVED { background:var(--pass); }
+  .FLAG { background:var(--flag); } .NOT_EVALUATED { background:var(--ne); } .LOW_CONFIDENCE, .OPEN { background:var(--refer); }
+  .MODEL_ERROR, .UNREADABLE, .FAILED { background:var(--decline); } .SUPERSEDED, .DUPLICATE, .SKIPPED, .CONTAINER, .PENDING { background:#98a2b3; }
+  .UNCLASSIFIED, .UNSUPPORTED { background:var(--ne); } .ERROR { background:var(--decline); } .REPLACED { background:#98a2b3; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; } @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  details summary { cursor:pointer; } .ev { font-family: ui-monospace, monospace; font-size:12px; color:#344054; }
+  .log { font-family: ui-monospace, monospace; font-size:12px; max-height:220px; overflow:auto; background:#0b1220; color:#d0d5dd; padding:8px; border-radius:6px; }
+  .log .ERROR { color:#fda29b; background:none; } .log .WARN { color:#fec84b; background:none; }
+  img.page { max-width:100%; border:1px solid var(--line); }
+  button, .btn { background:#1d2433; color:#fff; border:0; border-radius:6px; padding:5px 10px; cursor:pointer; font-size:13px; }
+  input[type=text] { padding:4px 6px; border:1px solid var(--line); border-radius:4px; }
+</style>
+</head>
+<body>
+<header><a href="/">Knight · Commercial Auto Intake</a><span class="muted small">prototype</span></header>
+<main>{% block body %}{% endblock %}</main>
+</body>
+</html>

@@ -1,0 +1,99 @@
+# Knight Specialty Insurance - Trucking Program guideline (mockup), as executable config.
+# Thresholds, lists and outcomes live here; each rule id maps to a small deterministic
+# predicate in engine.py. The LLM never decides an outcome.
+version: knight-trucking-v1.0
+source: Knight_Guideline(Mockup).docx
+
+settings:
+  # D-07: windows are measured from the application date
+  anchor_date_field: application_date
+  # D-05: "non-listed states". domicile = only the home state must be listed; operating states
+  # outside the list REFER. Set to "decline" to treat any operating state outside the list as prohibited.
+  operating_states_mode: refer
+
+params:
+  available_states: [AL, AZ, AR, CA, SC, SD, TN, TX, UT, VA, WV, WI, WY]
+  small_fleet_max_units: 10
+  loss_run_max_age_days: 60
+  mvr_max_age_days: 90
+  loss_run_prior_years: 3
+  ifta_quarters: 4
+  min_cdl_years: 2
+  min_driver_age: 23
+  dot_medical_age: 65
+  valid_license_statuses: [VALID]
+
+# outcome: what happens when the rule fails. PASS / FLAG / REFER / DECLINE.
+rules:
+  - id: SUB-01
+    title: Application has FEIN or SSN
+    clause: "Complete submission required: application with FEIN/SSN and MC/Docket number"
+    outcome: REFER
+  - id: SUB-02
+    title: Application has MC / docket number
+    clause: "Complete submission required: application with FEIN/SSN and MC/Docket number"
+    outcome: REFER
+  - id: SUB-08
+    title: Vehicle schedule has year, make, 17-character VIN and stated value for every unit
+    clause: "vehicle schedule with year, make, 17-character VIN and stated value"
+    outcome: REFER
+  - id: ST-01
+    title: Domicile is an available state
+    clause: "Available States: AL, AZ, AR, CA, SC, SD, TN, TX*, UT, VA, WV, WI, WY"
+    outcome: DECLINE
+  - id: ST-02
+    title: Texas operations north of I-10
+    clause: "*TX: Accounts must operate north of Interstate 10 (I-10)"
+    outcome: REFER
+  - id: ST-04
+    title: Operating states are available states
+    clause: "Prohibited exposures: ... non-listed states (see settings.operating_states_mode, D-05)"
+    outcome: REFER
+  - id: PRO-01
+    title: No hazardous materials
+    clause: "Prohibited exposures: Hazardous materials"
+    outcome: DECLINE
+  - id: PRO-02
+    title: No lithium battery cargo
+    clause: "Prohibited exposures: lithium battery cargo"
+    outcome: DECLINE
+  - id: PRO-03
+    title: No operations within 50 miles of the US/Mexico border
+    clause: "Prohibited exposures: operations within 50 miles of the USA/Mexico border"
+    outcome: DECLINE
+  - id: PRO-05
+    title: No serious SAFER violations
+    clause: "Prohibited exposures: serious SAFER violations"
+    outcome: DECLINE
+  - id: PRO-06
+    title: No towing / recovery
+    clause: "Prohibited exposures: towing/recovery"
+    outcome: DECLINE
+  - id: PRO-07
+    title: No intermodal / container
+    clause: "Prohibited exposures: intermodal/container"
+    outcome: DECLINE
+  - id: PRO-08
+    title: No waste disposal
+    clause: "Prohibited exposures: waste disposal"
+    outcome: DECLINE
+  - id: DRV-02
+    title: Every driver holds a valid CDL
+    clause: "Driver baseline: Valid U.S. driver license and CDL"
+    outcome: REFER
+  - id: DRV-03
+    title: Every driver has 2+ years CDL experience
+    clause: "Driver baseline: minimum 2 years CDL driving experience in the U.S. or Canada"
+    outcome: REFER
+  - id: DRV-04
+    title: Every driver is 23+ (65+ needs a DOT medical report)
+    clause: "Driver baseline: age 23+; drivers age 65+ must provide acceptable DOT medical examination report"
+    outcome: REFER
+  - id: CONFLICTS
+    title: No unresolved conflicting information
+    clause: "Missing required documents, conflicting information or any other flag above: refer to an underwriter"
+    outcome: REFER
+  - id: RTE-01
+    title: Route by power-unit count
+    clause: "1-10 power units: Small Fleet underwriting; 11+ power units: Fleet underwriting"
+    outcome: FLAG

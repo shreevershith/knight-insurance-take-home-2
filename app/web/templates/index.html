@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2>New submission</h2>
+  <p class="muted small">Drop the agent's email (.eml) - attachments and zips are unpacked automatically - or upload files directly.</p>
+  {% if not llm_ok %}<p><span class="badge MODEL_ERROR">No API key</span> ANTHROPIC_API_KEY is not set: image pages and extraction will show MODEL_ERROR.</p>{% endif %}
+  <form action="/submissions" method="post" enctype="multipart/form-data">
+    <input type="file" name="files" multiple required> <button type="submit">Process</button>
+  </form>
+  <p class="muted small">Model: <code>{{ model }}</code></p>
+</div>
+<div class="card">
+  <h2>Submissions</h2>
+  <table>
+    <tr><th>#</th><th>Received</th><th>From</th><th>Subject</th><th>Status</th><th>Decision</th><th>Team</th></tr>
+    {% for s in subs %}
+    <tr>
+      <td><a href="/submissions/{{ s.id }}">{{ s.id }}</a></td>
+      <td class="small">{{ s.received_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ s.sender }}</td><td><a href="/submissions/{{ s.id }}">{{ s.subject }}</a></td>
+      <td><span class="badge {{ s.status }}">{{ s.status }}</span> <span class="small muted">{{ s.step }}</span></td>
+      <td>{% if s.decision %}<span class="badge {{ s.decision }}">{{ s.decision }}</span>{% endif %}</td>
+      <td>{{ s.team }}</td>
+    </tr>
+    {% else %}<tr><td colspan="7" class="muted">No submissions yet.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

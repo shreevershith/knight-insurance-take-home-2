@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}#{{ sub.id }} {{ sub.subject }}{% endblock %}
+{% block head %}{% if running %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>{{ sub.subject }}</h1>
+  <div class="muted small">From {{ sub.sender }} · received {{ sub.received_at.strftime('%Y-%m-%d %H:%M') }} · rules {{ sub.rules_version or '-' }}</div>
+  <p>
+    <span class="badge {{ sub.status }}">{{ sub.status }}</span>
+    {% if sub.decision %}Decision: <span class="badge {{ sub.decision }}">{{ sub.decision }}</span>{% endif %}
+    {% if sub.team %} · Route to: <b>{{ sub.team }} underwriting</b>{% endif %}
+  </p>
+  <form method="post" action="/submissions/{{ sub.id }}/reprocess" style="display:inline"><button>Reprocess</button></form>
+  <form method="post" action="/submissions/{{ sub.id }}/rerun-rules" style="display:inline"><button>Re-run rules</button></form>
+  <details {% if running %}open{% endif %} style="margin-top:10px"><summary>Progress log ({{ logs|length }})</summary>
+    <div class="log">{% for l in logs %}<div class="{{ l.level }}">{{ l.at.strftime('%H:%M:%S') }} {{ l.message }}</div>{% endfor %}</div>
+  </details>
+</div>
+
+{% if sub.summary %}
+<div class="card" id="ai">
+  <h2>AI findings <span class="muted small">(advisory: decisions come from the rules)</span></h2>
+  {% if sub.summary.error %}<p><span class="badge MODEL_ERROR">MODEL_ERROR</span> {{ sub.summary.error }}</p>{% else %}
+  <p>{{ sub.summary.summary }}</p>
+  <div class="grid">
+    <div><h3>Concerns</h3>
+      {% for c in sub.summary.concerns %}<div style="margin-bottom:8px">
+        <span class="badge {{ 'DECLINE' if c.severity=='high' else ('REFER' if c.severity=='medium' else 'FLAG') }}">{{ c.severity }}</span>
+        <b>{{ c.title }}</b> <span class="muted small">conf {{ '%.2f'|format(c.confidence) }}</span><br>{{ c.detail }}
+        <div class="small muted">evidence: {{ c.evidence|join(', ') or 'none' }}{% if c.unsupported %} <span class="badge LOW_CONFIDENCE">unsupported</span>{% endif %}</div>
+      </div>{% endfor %}
+    </div>
+    <div><h3>Recommended next actions</h3>
+      {% for r in sub.summary.recommendations %}<div style="margin-bottom:8px">
+        <b>[{{ r.audience }}]</b> {{ r.action }} <span class="muted small">conf {{ '%.2f'|format(r.confidence) }}</span><br>
+        <span class="small">{{ r.reason }}</span><div class="small muted">evidence: {{ r.evidence|join(', ') or 'none' }}</div>
+      </div>{% endfor %}
+    </div>
+  </div>{% endif %}
+</div>
+{% endif %}
+
+<div class="card" id="rules">
+  <h2>Rule outcomes</h2>
+  <table><tr><th>Rule</th><th>Outcome</th><th>Result</th><th>Guideline clause</th><th>Evidence</th></tr>
+  {% for r in rules %}<tr>
+    <td><b>{{ r.rule_id }}</b><br><span class="small">{{ r.title }}</span></td>
+    <td><span class="badge {{ r.outcome }}">{{ r.outcome }}</span></td>
+    <td>{{ r.message }}</td><td class="small muted">{{ r.source_clause }}</td>
+    <td class="small">{% for fid in r.input_field_ids %}<a href="#F{{ fid }}">F{{ fid }}</a> {% endfor %}</td>
+  </tr>{% else %}<tr><td colspan="5" class="muted">Not evaluated yet.</td></tr>{% endfor %}
+  </table>
+</div>
+
+<div class="card" id="conflicts">
+  <h2>Conflicts &amp; duplicates ({{ conflicts|selectattr('status','equalto','OPEN')|list|length }} open)</h2>
+  {% for c in conflicts %}
+  <div style="border-top:1px solid var(--line); padding:8px 0">
+    <span class="badge {{ c.status }}">{{ c.status }}</span> <span class="badge FLAG">{{ c.kind }}</span>
+    <b>{{ c.field_name }}</b> · <code>{{ c.entity_key }}</code> <span class="muted">{{ c.description }}</span>
+    <table class="small">{% for v in c.values %}<tr>
+      <td><a href="#F{{ v.field_id }}">F{{ v.field_id }}</a></td><td><b>{{ v.value }}</b></td><td>{{ v.source }}</td>
+      <td>{% if v.field_id == c.suggested_field_id %}<span class="badge PASS">suggested</span> <span class="muted">{{ c.suggestion_reason }}</span>{% endif %}</td>
+    </tr>{% endfor %}</table>
+    {% if c.status == 'OPEN' %}
+    <form method="post" action="/conflicts/{{ c.id }}/resolve" class="small">
+      Accept <select name="field_id">{% for v in c.values %}<option value="{{ v.field_id }}" {% if v.field_id == c.suggested_field_id %}selected{% endif %}>{{ v.value }} ({{ v.source }})</option>{% endfor %}</select>
+      reason <input type="text" name="reason" required size="40"> <button>Resolve</button>
+    </form>
+    {% else %}<div class="small muted">{{ c.resolution }}</div>{% endif %}
+  </div>
+  {% else %}<p class="muted">None.</p>{% endfor %}
+</div>
+
+<div class="card" id="docs">
+  <h2>Documents &amp; pages (classified by content)</h2>
+  <table><tr><th>File</th><th>Page</th><th>Type</th><th>How</th><th>Status</th></tr>
+  {% for d in docs %}
+    {% if not d.pages %}<tr><td>{{ d.filename }}{% if d.parent_id %} <span class="muted small">(from zip)</span>{% endif %}</td><td></td><td></td><td></td>
+      <td><span class="badge {{ d.status }}">{{ d.status }}</span> <span class="small muted">{{ d.error }}{% if d.duplicate_of_id %}duplicate of doc {{ d.duplicate_of_id }}{% endif %}</span></td></tr>{% endif %}
+    {% for p in d.pages %}<tr>
+      <td>{% if loop.first %}{{ d.filename }}{% endif %}</td>
+      <td>{{ p.page_no }}{% if p.label %} <span class="small muted">{{ p.label }}</span>{% endif %}
+          {% if p.image_path %}<a class="small" href="/pages/{{ p.id }}/image" target="_blank">image</a>{% endif %}</td>
+      <td><b>{{ p.doc_type }}</b></td>
+      <td class="small">{{ p.classify_method }} {{ '%.2f'|format(p.classify_confidence) }} · {{ p.text_source or 'image only' }}<br><span class="muted">{{ p.classify_reason[:140] }}</span></td>
+      <td><span class="badge {{ p.status }}">{{ p.status }}</span> <span class="small muted">{{ p.error[:120] }}</span></td>
+    </tr>{% endfor %}
+  {% endfor %}</table>
+</div>
+
+<div class="card" id="fields">
+  <h2>Extracted information (by entity)</h2>
+  <p class="small muted">Each value shows its source excerpt and confidence. Values below 0.85 are flagged for review. Click a page to check the value against the original.</p>
+  {% for key, items in entities.items() %}
+  <details {% if loop.index < 4 %}open{% endif %}><summary><b>{{ key }}</b> <span class="muted small">({{ items|length }} values)</span></summary>
+    <table class="small">
+      <tr><th>id</th><th>field</th><th>value</th><th>evidence</th><th>source</th><th>conf</th><th>status</th><th>override</th></tr>
+      {% for f in items %}<tr id="F{{ f.id }}">
+        <td>F{{ f.id }}</td><td>{{ f.name }}</td><td><b>{{ f.value }}</b></td>
+        <td class="ev">{{ f.excerpt[:140] }}</td>
+        <td>{% if f.page_id and pages.get(f.page_id) %}{% set p = pages[f.page_id] %}{{ p.document.filename[:34] }} p{{ p.page_no }}
+            {% if p.image_path %}<a href="/pages/{{ p.id }}/image" target="_blank">view</a>{% endif %}<br><span class="muted">{{ f.method }}</span>{% else %}{{ f.method }}{% endif %}</td>
+        <td>{{ '%.2f'|format(f.confidence) }}</td>
+        <td><span class="badge {{ f.status }}">{{ f.status }}</span>
+            {% for k, v in f.validation.items() if v is sameas false %}<div class="small" style="color:var(--decline)">✗ {{ k }}</div>{% endfor %}</td>
+        <td>{% if f.status != 'SUPERSEDED' %}<details><summary class="small">edit</summary>
+          <form method="post" action="/fields/{{ f.id }}/override"><input type="text" name="value" value="{{ f.value }}" size="14">
+          <input type="text" name="reason" placeholder="reason (required)" required size="18"> <button>Save</button></form></details>{% endif %}</td>
+      </tr>{% endfor %}
+    </table>
+  </details>
+  {% endfor %}
+</div>
+
+<div class="card" id="audit">
+  <h2>Audit log</h2>
+  <table class="small"><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Change</th><th>Reason</th></tr>
+  {% for a in audits %}<tr><td>{{ a.at.strftime('%m-%d %H:%M:%S') }}</td><td>{{ a.actor }}</td><td>{{ a.action }}</td><td>{{ a.target }}</td>
+    <td class="ev">{{ a.before }} → {{ a.after }}</td><td>{{ a.reason }}</td></tr>{% endfor %}</table>
+</div>
+{% endblock %}
