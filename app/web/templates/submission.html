@@ -174,6 +174,58 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 .cellbtn { font: 12px/1.4 var(--mono); padding: 1px 4px; border: 1px solid transparent; border-radius: 2px; background: none; cursor: pointer; }
 .cellbtn:hover { border-color: var(--line-2); background: var(--surface); }
 .cellbtn.lo { color: var(--unk); }
+
+/* ================= polish layer (this page) ================= */
+/* tab bar: glass, with an underline that grows under the hovered or current tab */
+.subnav { background: var(--glass); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+          gap: 26px; padding: 12px 0; border-bottom-color: rgba(214, 209, 196, .7); }
+.subnav a { position: relative; padding: 2px 0; color: var(--muted); }
+.subnav a:hover::after, .subnav a.on::after { transform: scaleX(1); }
+.subnav .cnt { border-radius: 999px; padding: 0 6px; font-weight: 600; }
+
+/* status hero */
+.status { gap: 22px; }
+.status h1 { font-size: 52px; letter-spacing: -0.035em; }
+.status .route { font-size: 16px; }
+.cells { border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--sh-2); border-color: var(--line); background: var(--surface); }
+.cell { position: relative; padding: 18px 22px 20px; transition: background .2s, transform .25s var(--ease); }
+.cell::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: currentColor; opacity: 0;
+                transform: scaleX(.3); transform-origin: left; transition: opacity .25s, transform .35s var(--ease); }
+.cell.p::before { color: var(--pass); } .cell.f::before { color: var(--flag); } .cell.u::before { color: var(--unk); } .cell.g::before { color: var(--gray); }
+.cell:hover { background: linear-gradient(180deg, var(--hover), var(--surface)); }
+.cell:hover::before { opacity: 1; transform: none; }
+.cell .num b { font-size: 44px; transition: transform .3s var(--ease); display: inline-block; }
+.cell:hover .num b { transform: translateY(-2px); }
+.cell .ex { line-height: 1.55; }
+
+/* cards: soft elevation */
+.actions-list, .grp, .pipe { border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--sh-1); }
+.grp { padding: 16px 18px; transition: box-shadow .25s var(--ease), transform .25s var(--ease); }
+.grp:hover { box-shadow: var(--sh-2); transform: translateY(-2px); }
+.grps { gap: 16px; margin-top: 24px; }
+.ai { padding: 16px 18px 16px 16px; transition: background .18s, padding-left .25s var(--ease); }
+.ai:hover { background: linear-gradient(90deg, var(--hover), rgba(242, 238, 229, .25)); padding-left: 20px; }
+.summary .snap { font-size: 20px; line-height: 1.6; }
+.summary .more p, .summary .more ul { line-height: 1.7; }
+.chip { border-radius: 4px; transition: border-color .15s, background .15s, transform .2s var(--ease); }
+.chip:hover { background: var(--surface); transform: translateY(-1px); }
+
+/* rule and value rows: a quiet highlight that follows the pointer */
+.rule, .field, .conflict { transition: background .18s; border-radius: 4px; }
+.rule { padding: 16px 10px; margin: 0 -10px; }
+.rule:hover, .field:hover { background: linear-gradient(90deg, rgba(242, 238, 229, .7), transparent 85%); }
+.field { padding: 16px 10px 16px 16px; }
+.entity > summary { padding: 14px 4px; transition: color .15s; }
+.entity > summary:hover .nm { text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.val { font-size: 16.5px; }
+
+/* conflict choices: cards that lift and show the selection clearly */
+.alt { border-radius: var(--r-lg); padding: 14px 16px; transition: border-color .18s, box-shadow .25s var(--ease), transform .25s var(--ease), background .18s; }
+.alt:hover { transform: translateY(-2px); box-shadow: var(--sh-2); }
+.alt:has(input:checked) { box-shadow: inset 0 0 0 1px var(--ink), var(--sh-2); }
+.alt.done:hover { transform: none; box-shadow: none; }
+.edit { border-radius: var(--r-lg); box-shadow: var(--sh-1); }
+.cellbtn { border-radius: 4px; transition: border-color .15s, background .15s; }
 </style>
 {% endblock %}
 

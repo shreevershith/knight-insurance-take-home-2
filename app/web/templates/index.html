@@ -18,6 +18,22 @@
 .subs .st { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .subs .when { font: 12px/1 var(--mono); color: var(--faint); }
 @media (max-width: 640px) { .subs li { grid-template-columns: 1fr; gap: 6px; } .subs .st { justify-content: flex-start; } }
+
+/* polish layer */
+.hero-empty { padding: 64px 0 16px; }
+.hero-empty h1 { font-size: 52px; letter-spacing: -0.035em; background: linear-gradient(180deg, #111 30%, #4a453c);
+                 -webkit-background-clip: text; background-clip: text; color: transparent; padding-bottom: 4px; }
+.hero-empty p { font-size: 16.5px; line-height: 1.7; color: var(--ink-2); }
+.steps { gap: 12px; border-top: 0; margin-top: 40px; }
+.steps li { padding: 16px 16px 18px; background: rgba(255, 253, 249, .75); border: 1px solid var(--line); border-radius: var(--r-lg);
+            box-shadow: var(--sh-1); transition: transform .25s var(--ease), box-shadow .25s var(--ease), border-color .2s; line-height: 1.55; }
+.steps li:hover { transform: translateY(-3px); box-shadow: var(--sh-2); border-color: var(--line-2); }
+.steps .no { color: var(--accent); }
+.subs { margin-top: 12px; }
+.subs li { padding: 16px 12px; margin: 0 -12px; border-radius: var(--r); transition: background .18s, box-shadow .25s var(--ease); }
+.subs li:hover { background: var(--surface); box-shadow: var(--sh-2); border-bottom-color: transparent; }
+.subs .nm { font-size: 15px; text-decoration-color: var(--line-2); transition: text-decoration-color .2s; }
+.subs .nm:hover { text-decoration: underline; text-decoration-color: var(--ink); }
 </style>
 {% endblock %}
 
