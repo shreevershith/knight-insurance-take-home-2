@@ -101,7 +101,7 @@ def main() -> None:
     for ok, label, got, want in rows:
         print(f"{'PASS' if ok else 'FAIL'}  {label:55} got={got!s:30.30} want={want}")
     passed = sum(r[0] for r in rows)
-    kind = ("HELD-OUT: a measurement on a submission the system was not built against" if held_out
+    kind = ("HELD-OUT set: only its FIRST run is a measurement; after fixes it is a regression check (RUN_LOG.md)" if held_out
             else "regression check on the sample, not an accuracy measure")
     print(f"\n{passed}/{len(rows)} checks passed (submission {sub_id}; {kind})")
 

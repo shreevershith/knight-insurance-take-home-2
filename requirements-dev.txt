@@ -1,0 +1,3 @@
+# Only for rebuilding the held-out test submissions (scripts/make_heldout*.py)
+-r requirements.txt
+fpdf2==2.8.1
