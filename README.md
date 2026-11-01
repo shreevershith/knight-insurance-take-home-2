@@ -1,131 +1,226 @@
-# Knight Intake: commercial auto submission review
+# Knight Intake
 
-A working prototype for Knight Specialty's trucking program. An agent's email goes in; the system unpacks it, reads
-every page (including scans and phone photos), extracts each value **with the line it came from**, finds conflicts
-between documents, applies the underwriting guideline with **deterministic rules**, and shows an underwriter a
-decision, the reasons, and an AI-written summary they can check.
+**An AI-assisted intake system that turns an insurance agent's commercial-auto email into a checked, evidence-backed
+underwriting decision.**
 
-> The AI reads documents and advises. **It never decides.** Every accept/refer/decline comes from versioned rules
-> over values a person can inspect, correct or override.
+Knight Specialty's trucking program receives submissions by email: applications, driver and vehicle lists, motor
+vehicle records (MVRs), loss runs, fuel-tax (IFTA) returns, scans and phone photos, often misnamed, duplicated or
+inconsistent. Knight Intake reads every page, extracts each value **with the line it came from**, finds conflicts
+between documents, applies the underwriting guideline as **deterministic rules**, and shows an underwriter the
+decision, the reasons, and an AI-written summary they can verify.
 
-## What it does
+> The AI reads documents and advises. **It never decides.** Every decision comes from versioned rules over values a
+> person can inspect, correct or override.
 
-- **Intake:** an `.eml` (or loose files): the email body itself, PDF, XLSX, Word (`.docx`), text, images (phone photos
-  turned upright and sized for the model), zips. Zips are unpacked, duplicates caught by hash, anything else
-  (TIFF, HEIC, `.doc`, `.msg`) flagged UNSUPPORTED with the reason.
-- **Classification by content, not file name.** `scan001.pdf` that is really a loss run is read as a loss run.
-- **Extraction with evidence.** Each value keeps its excerpt, source page and a confidence. Code checks that the
-  excerpt is really on the page and contains the value. Scans and photos are transcribed first, then read the same way.
-- **Checks in code:** VIN check digits, IFTA rows must add up to the printed total, agreement across documents,
-  a loss run matching the application's prior-insurance listing.
-- **Conflicts** (INC vs LLC, DOB mismatches, a claim on a vehicle that isn't scheduled…) are shown with every
-  source value and a suggestion, and stay open until a person decides.
-- **42 guideline rules** (`app/rules/knight_v1.yaml`), each quoting its clause. A rule whose input can't be determined
-  from the submission returns *not evaluated*, which refers and never passes. The three that need outside data
-  (SAFER, border distance, the quoted premium) return *verify*: the best a clean account gets is "ready to quote,
-  after checks", with those checks listed.
-- **Review UI:** status and decision, a "To review" list, rule checks, conflicts, extracted values with their evidence
-  and page image, corrections with a reason (rules re-run immediately), and a full audit log.
-- **Operations page (`/ops`):** failed or interrupted submissions, unreadable files, the job queue with attempts and
-  workers, and cost per run with the escalation rate (PLAN §5b-2).
-- **AI analyst:** summary, concerns and next actions, each citing the values it relies on; citations are verified.
+**Documentation:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (diagrams, data flow, design decisions) ·
+[docs/CODE_EXPLANATION.md](docs/CODE_EXPLANATION.md) (every file, a full execution trace, self-review) ·
+[DECISIONS.md](DECISIONS.md) · [PLAN.md](PLAN.md) · [RUN_LOG.md](RUN_LOG.md)
 
-## Run it
+---
 
-Requires Python 3.12 and an Anthropic API key.
+## Features
+
+- **Email intake.** An `.eml` file (or loose files): the email body itself, PDF, Excel (`.xlsx`), Word (`.docx`),
+  text, images and zips. Zips are unpacked, duplicates caught by content hash, phone photos turned upright and sized
+  for the model. Anything else (TIFF, HEIC, `.doc`, `.msg`) is flagged UNSUPPORTED with the reason, never dropped.
+- **Classification by content, not file name.** A file called `scan001.pdf` that is really a loss run is read as a
+  loss run; a vehicle list saved as `Book1.xlsx` is read as a vehicle schedule.
+- **Extraction with evidence.** Every value keeps its quoted source line, page and a confidence computed in code
+  (is the quote really on the page, does it contain the value, do validators pass). Scans, photos and handwriting are
+  transcribed first, then read the same way.
+- **Checks in code.** VIN check digits, IFTA rows adding up to the printed total, agreement across documents, loss
+  runs matching the application's prior-insurance listing.
+- **Conflicts surfaced, never silently resolved.** INC vs LLC, DOB mismatches, a claim on an unscheduled vehicle:
+  each shown with every source value and a suggestion, open until a person decides.
+- **42 guideline rules** (`app/rules/knight_v1.yaml`), each quoting its clause. Unknown inputs refer and never pass;
+  the three checks that need outside data (SAFER, border distance, the quoted premium) are listed as "check before
+  quoting".
+- **Decisions:** DECLINE · REFER · **Ready to quote, after checks** · Ready to quote, and routing to Small Fleet
+  (1–10 power units) or Fleet (11+).
+- **AI analyst.** A summary, underwriting concerns and next actions, each citing the values it relies on (citations
+  verified in code), with the agent's email as context.
+- **Review UI.** Decision and reasons, a "To review" list, rule checks with what changed since the last run,
+  conflicts, every value with its evidence and page image, corrections with a required reason (rules re-run at once),
+  and a full audit log.
+- **Operations page (`/ops`).** Failed or interrupted submissions, unreadable files, the job queue, and cost per run.
+- **Reliable processing.** A job queue on Postgres with workers (`SKIP LOCKED`, leases, retries, takeover when a
+  worker dies); page calls run in parallel inside a job.
+- **Cost control.** A model per task (Haiku, Sonnet, Opus), escalation only when a code check fails, a response cache
+  and a cost ledger: about **$0.55–0.62 per submission** for the 33-page sample.
+
+## Prerequisites
+
+| Need | For |
+|---|---|
+| **Python 3.12** | Running the app locally and the tests |
+| **An Anthropic API key** | Classification of unclear pages, scans, extraction and the AI analyst |
+| **Docker Desktop** (optional) | Running the full stack (app, workers, PostgreSQL 18) with one command |
+| **PostgreSQL 18** (optional, local) | Only if you run locally against Postgres instead of the default SQLite |
+
+## Installation and setup
+
+### Option A: Docker (recommended: app + workers + Postgres)
+
+1. Copy the example settings and fill in two values:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   In `.env`, set `ANTHROPIC_API_KEY=` and `POSTGRES_PASSWORD=` (any long random string; it is only used inside the
+   Docker network).
+
+2. Build and start:
+
+   ```bash
+   docker compose up --build -d
+   ```
+
+3. Open http://localhost:8000.
+
+To handle more submissions at once, add workers:
 
 ```bash
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt     # macOS/Linux: .venv/bin/python
-cp .env.example .env                                        # then set ANTHROPIC_API_KEY
-.venv/Scripts/python -m uvicorn app.web.main:app --port 8000
+docker compose up -d --scale worker=3
 ```
 
-Open http://localhost:8000 and drop an `.eml` (or the files) on the page.
+### Option B: Local Python
 
-**With Docker** (Docker Desktop only; no other service): set `ANTHROPIC_API_KEY` and `POSTGRES_PASSWORD` in `.env`, then
+1. Create a virtual environment and install the dependencies:
+
+   ```bash
+   python -m venv .venv
+   .venv/Scripts/python -m pip install -r requirements.txt
+   ```
+
+   (On macOS or Linux use `.venv/bin/python`.)
+
+2. Copy the settings and set your API key:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Start the web app:
+
+   ```bash
+   .venv/Scripts/python -m uvicorn app.web.main:app --port 8000
+   ```
+
+4. Open http://localhost:8000.
+
+Locally the database is SQLite under `data/` and jobs run inside the web process (`JOB_MODE=thread`), so no worker
+is needed. To use a local PostgreSQL instead, set `DATABASE_URL` in `.env`; on Windows,
+`scripts/pg_setup.ps1` creates the database and user from that URL.
+
+## Usage
+
+**Process a submission in the browser.** Drop an agent's `.eml` (or the files) on the upload panel and choose
+*Process submission*. The page shows each stage live; when it finishes you see the decision, the items to review,
+the AI summary, every rule, conflicts and every extracted value with its source.
+
+**Review.** Click a value to see the quoted line and the page it came from. Correct a value or pick the right side
+of a conflict, with a reason: the rules re-run immediately and the audit log records it.
+
+**Run the pipeline from the command line** (no web server):
 
 ```bash
-docker compose up --build -d          # app + worker + Postgres 18 -> http://localhost:8000
-docker compose up -d --scale worker=3 # more workers: more submissions at once
-docker compose exec app python -m pytest -q
+.venv/Scripts/python scripts/run_sample.py eval/heldout/holston.eml
 ```
 
-The web app only enqueues jobs; workers take them from a job table on the same Postgres (`SKIP LOCKED`, a renewed lease, retries; D-36), so no broker or cloud service is needed. The container Postgres is not exposed on the host. `data/` is mounted, so uploads, the LLM cache and the
-cost ledger are shared with local runs. `APP_PORT` picks another host port.
-
-- **Database:** SQLite under `data/` by default. For PostgreSQL, set `DATABASE_URL` in `.env`
-  (`postgresql+psycopg://user:pass@localhost:5432/knight`). On Windows, `scripts/pg_setup.ps1` creates the
-  database and user and checks the login (D-33).
-- **Sample submission:** the case-study pack isn't in this repository. With it in `candidate_materials/`,
-  `python scripts/make_sample_eml.py` builds `samples/cobalt_mesa_submission.eml`.
-- **From the command line:** `python scripts/run_sample.py [path.eml]` runs the whole pipeline without the web app.
-
-## Tests and evaluation
+**Score a processed submission against its answer key:**
 
 ```bash
-.venv/Scripts/python -m pytest -q                                           # 80 tests, no API calls
-.venv/Scripts/python eval/run_eval.py                                       # the case-study sample
-.venv/Scripts/python eval/run_eval.py --expected eval/heldout/desert_ridge_expected.json
-.venv/Scripts/python eval/run_eval.py --expected eval/heldout/bluestem_expected.json
+.venv/Scripts/python eval/run_eval.py --expected eval/heldout/holston_expected.json
 ```
+
+**See what runs cost:**
+
+```bash
+.venv/Scripts/python scripts/cost_report.py
+```
+
+**Run the tests** (no API calls):
+
+```bash
+.venv/Scripts/python -m pytest -q
+```
+
+Inside Docker, prefix commands with `docker compose exec app`, for example
+`docker compose exec app python -m pytest -q`.
+
+The case-study sample package is not in this repository. With its files in `candidate_materials/`,
+`python scripts/make_sample_eml.py` builds `samples/cobalt_mesa_submission.eml`. The three held-out submissions are
+included under `eval/heldout/` (`scripts/make_heldout*.py` rebuilds them; needs `requirements-dev.txt`).
+
+## Configuration
+
+All settings come from `.env` (see `.env.example`) or the environment. Defaults are in `app/config.py`.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | Claude API key (required for model calls; `ANTHROPIC_AUTH_TOKEN` also works) |
+| `CLAUDE_MODEL` | `claude-opus-5-5` | Model for the AI analyst |
+| `CLAUDE_EFFORT` | `medium` | Default effort for model calls |
+| `CLAUDE_FALLBACKS` | `default` | Server-side refusal fallback (not sent to Haiku); empty disables |
+| `LLM_MODEL_<TIER>` / `LLM_EFFORT_<TIER>` | Haiku (classify, extract), Sonnet (transcribe), `CLAUDE_MODEL` (analyst) | Override the model or effort for one task tier: `CLASSIFY`, `TRANSCRIBE`, `EXTRACT`, `ANALYST` |
+| `LLM_ESCALATION_MODEL` / `LLM_ESCALATION_EFFORT` | `claude-opus-5-5` / `medium` | Model used to re-run a result that failed a code check |
+| `LLM_CONCURRENCY` | `6` | Page calls run at the same time inside one job |
+| `LLM_TIMEOUT_SECONDS` | `180` | Timeout per model call (the SDK also retries) |
+| `LLM_CACHE_DIR` | `llm_cache` | Response cache folder under `DATA_DIR`; point at an empty folder to measure a run with no cache hits |
+| `LLM_RUN_LABEL` | — | Tag added to cost-ledger lines for an experiment |
+| `DATA_DIR` | `data` | Files, page images, cache, cost ledger, SQLite database |
+| `DATABASE_URL` | SQLite in `DATA_DIR` | e.g. `postgresql+psycopg://user:pass@localhost:5432/knight` |
+| `RULES_FILE` | `app/rules/knight_v1.yaml` | The guideline as rules |
+| `JOB_MODE` | `thread` | `thread`: the web process runs jobs; `queue`: workers (`python -m app.worker`) run them |
+| `JOB_LEASE_SECONDS` / `JOB_MAX_ATTEMPTS` / `JOB_RETRY_BACKOFF_SECONDS` / `WORKER_POLL_SECONDS` | `120` / `3` / `30` / `2` | Queue behaviour: lease length, attempts before FAILED, delay × attempt, polling interval |
+| `POSTGRES_PASSWORD` | — | Docker only: password of the container's Postgres |
+| `APP_PORT` | `8000` | Docker only: host port for the web app |
+| `TEST_DATABASE_URL` | — | Tests only: run them against Postgres instead of a throwaway SQLite file |
+
+Guideline thresholds (available states, day limits, ages, points, keyword lists) are not environment variables:
+they live in `app/rules/knight_v1.yaml`, and every rule result records the rules version it ran under.
+
+## Results
+
+Each set is scored with `eval/run_eval.py` against expected values written by hand.
 
 | Set | What it is | First run | Now |
 |---|---|---|---|
 | Sample (Cobalt Mesa, CA) | The case-study submission. The system was built against it, so this is a **regression check**, not an accuracy measure | n/a | **87/87** |
-| Held-out #1 (Desert Ridge, AZ) | Written from scratch after the build: other carriers, a phone-photo loss run, an image-only IFTA scan, a corrupt PDF, a different roster layout | **49/72** | 72/72 |
-| Held-out #3 (Holston Valley, TN) | A **clean** 12-unit fleet, built to test the "yes" path and Fleet routing: Word application, HTML-only email, a sideways phone photo of a CDL | **69/69** | 69/69 |
-| Held-out #2 (Bluestem, TN) | Written after the #1 fixes and run once on unchanged code: a zip with misleading names, a duplicate, a `.docx`, a PDF schedule, four IFTA returns in one PDF | **64/70** | 70/71 |
+| Held-out #1 (Desert Ridge, AZ) | Written after the build: other carriers, a phone-photo loss run, an image-only IFTA scan, a corrupt PDF | **49/72** | 72/72 |
+| Held-out #2 (Bluestem, TN) | Written after the #1 fixes: a zip with misleading names, a duplicate, a Word note, four IFTA returns in one PDF | **64/70** | 70/71 |
+| Held-out #3 (Holston Valley, TN) | A **clean** 12-unit fleet: Word application, HTML-only email, a sideways phone photo of a CDL | **69/69** | 69/69 |
 
-**The first-run numbers are the real measurements**; held-out #3 has not been used for any fix. Both held-out sets were then used to fix general causes, so their
-current scores are regression results. On both unseen submissions **every miss went toward "refer"**: nothing was
-wrongly passed or wrongly declined. On held-out #2 the decision (DECLINE, from two independent causes) was right on the
-first run. Expected values were written by hand before each first run; `scripts/make_heldout*.py` rebuilds the files
-(needs `requirements-dev.txt`).
+- **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
+  current scores are regression results; held-out #3 has not been used for any fix.
+- On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
+- 80 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
-## Architecture
-
-```
-email ─► intake (zip, dedupe) ─► pages ─► classify (rules first, model if needed; scans transcribed)
-      ─► extract with evidence (one schema-driven extractor; spreadsheets parsed in code)
-      ─► verify (excerpt on page, validators, cross-document, IFTA totals) ─► resolve entities
-      ─► conflicts ─► 42 rules (YAML + Python) ─► decision + routing ─► AI analyst (advisory)
-      ─► review UI ─► corrections/resolutions (audited) ─► rules re-run
-```
-
-- **Models per task (D-31):** Haiku 5.5 classifies and extracts, Sonnet 5.5 transcribes scans and photos, Opus 5.5
-  writes the analysis. A cheaper model's result that fails a code check is re-run on Opus. Measured cost: about
-  **$0.62 per submission** for the 33-page sample, down from $2.37 with Opus everywhere. Every call is in a cost
-  ledger (`scripts/cost_report.py`).
-- **Guards that hold across all rules:** a value that couldn't be read is never reported as missing; a rule never
-  passes on a low-confidence value; a decline needs cited evidence; a rule cites only the values it relies on.
-- **Built vs designed.** Built: a single process with background jobs, an atomic one-job-per-submission claim and
-  restart recovery, on PostgreSQL. Built: Docker (app + worker + Postgres); a database job queue with workers, leases and retries; page calls run in parallel within a job (`LLM_CONCURRENCY`, D-36): the sample on an empty cache took 97 s instead of 290 s. Designed only: SQS or a managed queue, autoscaling, real
-  mailbox intake, SSO/RBAC, FMCSA/SAFER lookups. See PLAN.md §5a and D-25.
-
-## Where things are
+## Project structure
 
 | Path | What |
 |---|---|
-| `app/intake.py`, `app/classify.py`, `app/extract/` | Intake, page classification, extraction, evidence scoring, normalization |
-| `app/resolve.py`, `app/conflicts.py` | Entity matching across documents, conflicts and duplicates |
-| `app/rules/` | `knight_v1.yaml` (thresholds, keyword lists, 42 rules), the engine, guards and predicates |
-| `app/pipeline.py`, `app/analyst.py`, `app/review.py` | The run, the AI analyst, human corrections |
-| `app/web/` | FastAPI app and templates |
-| `eval/` | Expected values, the eval runner, held-out submissions |
-| `PLAN.md` | Requirements checklist, the guideline as rules, ground truth, architecture, a claims check against the code |
-| `DECISIONS.md` | Every decision: what the spec said, the options, what was chosen and why (D-01 to D-39) |
-| `RUN_LOG.md` | Every real model run, its cost and eval score, and what changed because of it |
+| `app/intake.py`, `app/classify.py`, `app/extract/` | Intake, page classification, extraction, evidence and confidence, normalization |
+| `app/pipeline.py` | One run, stage by stage; parallel page calls; IFTA reconciliation |
+| `app/resolve.py`, `app/conflicts.py` | Matching entities across documents; conflicts and duplicates |
+| `app/rules/` | `knight_v1.yaml` (42 rules), the engine and guards, predicates, the resolved view |
+| `app/analyst.py`, `app/review.py` | The AI summary; human corrections |
+| `app/jobs.py`, `app/worker.py` | The job queue and workers |
+| `app/llm.py`, `app/db.py`, `app/config.py`, `app/log.py` | Model calls, data model, settings, logging |
+| `app/web/` | FastAPI routes and templates (review page, operations page) |
+| `eval/`, `tests/`, `scripts/` | Answer keys and scorer, tests, utilities |
+| `docs/` | Architecture and code explanation |
 
 ## Known limitations
 
-- Evaluated on three submissions, two of which have since been used for fixes. A new held-out submission is what would
-  measure again.
-- Some guideline inputs aren't in a submission at all (SAFER violations, distance to the Mexico border, requested premium,
-  a 65+ driver's medical card); those rules return *not evaluated* and an underwriter checks them.
-- Ambiguities in the guideline (e.g. whether "non-listed states" means the home state or every state operated in) are
-  settings or documented interpretations, listed in PLAN.md §2.9 as questions for Knight.
-- Single reviewer identity; no authentication.
+- Evaluated on four submissions; two of the held-out sets have since been used for fixes. More held-out
+  submissions, ideally real redacted ones, would measure accuracy with more confidence.
+- SAFER violations, distance to the Mexico border and the quoted premium aren't in any submission: those checks
+  are listed as "check before quoting". A 65+ driver's medical report isn't a document type the system reads.
+- Ambiguities in the guideline are settings or documented interpretations, listed in PLAN.md §2.9 as questions for
+  Knight.
+- Single reviewer identity; no login or roles. A real mailbox, SSO and managed cloud services are designed, not built.
 
 ## How it was built
 
