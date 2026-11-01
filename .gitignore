@@ -11,3 +11,6 @@ samples/
 
 # experiment outputs echo the sample case data
 eval/experiments/*.txt
+
+# local Claude Code settings (dev server launch config)
+.claude/
