@@ -1,36 +1,163 @@
 {
   "_note": "Hand-checked expected values for the Cobalt Mesa sample (PLAN.md 3.2, DECISIONS D-26..D-30). Built against the same sample the system is built on, so this is a REGRESSION check, not an accuracy measure (D-19). Anchor date = application date 10/22/2026.",
   "fields": [
-    {"entity": "applicant", "field": "business_name", "expect": "COBALT MESA TRANSPORT INC"},
-    {"entity": "applicant", "field": "dot_number", "expect": "9481307"},
-    {"entity": "applicant", "field": "mc_number", "expect": "1987405"},
-    {"entity": "applicant", "field": "fein", "expect": null, "why": "blank on the application (SUB-01)"},
-    {"entity": "applicant", "field": "mailing_state", "expect": "CA"},
-    {"entity": "applicant", "field": "application_date", "expect": "2026-10-22", "why": "Excel serial 46317"},
-    {"entity": "applicant", "field": "effective_date", "expect": "2026-12-15", "why": "text '12/15/2026.'"},
-    {"entity": "operations", "field": "hazmat", "expect": false},
-    {"entity": "operations", "field": "intermodal", "expect": false},
-    {"entity": "operations", "field": "cross_border", "expect": false},
-    {"entity": "coverage", "field": "apd_requested", "expect": true},
-    {"entity": "coverage", "field": "cargo_limit", "expect": 100000},
-    {"entity": "driver:C4471925", "field": "license_class", "doc_types": ["MVR"], "expect": "C NON-COMMERCIAL", "match": "contains:C"},
-    {"entity": "driver:M5520814", "field": "dob", "doc_types": ["MVR"], "expect": "1991-10-30"},
-    {"entity": "driver:M5520814", "field": "dob", "doc_types": ["DRIVER_SCHEDULE"], "expect": "1991-10-03"},
-    {"entity": "driver:O7314062", "field": "license_issue_date", "doc_types": ["DRIVER_LICENSE"], "expect": "2021-01-06"},
-    {"entity": "driver:O7314062", "field": "license_expiration", "doc_types": ["DRIVER_LICENSE"], "expect": "2025-02-17"},
-    {"entity": "driver:V61930287415503", "field": "license_expiration", "doc_types": ["DRIVER_LICENSE"], "expect": "2026-06-02"},
-    {"entity": "vehicle:3AKJGLD59HSKR736", "field": "vin", "expect": "3AKJGLD59HSKR736", "why": "16 characters, kept as printed"},
-    {"entity": "loss_run:AL:GAL8100457", "field": "total_incurred", "expect": 77459},
-    {"entity": "ifta:2025-12-31", "field": "taxpayer_name", "expect": "COBALT MESA TRANSPORT LLC"},
-    {"entity": "ifta:2026-03-31", "field": "penalty", "expect": 346.42},
-    {"entity": "ifta:2025-09-30", "field": "total_miles", "expect": 137594},
-    {"entity": "ifta:2026-06-30", "field": "total_miles", "expect": 103773, "why": "skewed photocopy"}
+    {
+      "entity": "applicant",
+      "field": "business_name",
+      "expect": "COBALT MESA TRANSPORT INC"
+    },
+    {
+      "entity": "applicant",
+      "field": "dot_number",
+      "expect": "9481307"
+    },
+    {
+      "entity": "applicant",
+      "field": "mc_number",
+      "expect": "1987405"
+    },
+    {
+      "entity": "applicant",
+      "field": "fein",
+      "expect": null,
+      "why": "blank on the application (SUB-01)"
+    },
+    {
+      "entity": "applicant",
+      "field": "mailing_state",
+      "expect": "CA"
+    },
+    {
+      "entity": "applicant",
+      "field": "application_date",
+      "expect": "2026-10-22",
+      "why": "Excel serial 46317"
+    },
+    {
+      "entity": "applicant",
+      "field": "effective_date",
+      "expect": "2026-12-15",
+      "why": "text '12/15/2026.'"
+    },
+    {
+      "entity": "operations",
+      "field": "hazmat",
+      "expect": false
+    },
+    {
+      "entity": "operations",
+      "field": "intermodal",
+      "expect": false
+    },
+    {
+      "entity": "operations",
+      "field": "cross_border",
+      "expect": false
+    },
+    {
+      "entity": "coverage",
+      "field": "apd_requested",
+      "expect": true
+    },
+    {
+      "entity": "coverage",
+      "field": "cargo_limit",
+      "expect": 100000
+    },
+    {
+      "entity": "driver:C4471925",
+      "field": "license_class",
+      "doc_types": [
+        "MVR"
+      ],
+      "expect": "C NON-COMMERCIAL",
+      "match": "contains:C"
+    },
+    {
+      "entity": "driver:M5520814",
+      "field": "dob",
+      "doc_types": [
+        "MVR"
+      ],
+      "expect": "1991-10-30"
+    },
+    {
+      "entity": "driver:M5520814",
+      "field": "dob",
+      "doc_types": [
+        "DRIVER_SCHEDULE"
+      ],
+      "expect": "1991-10-03"
+    },
+    {
+      "entity": "driver:O7314062",
+      "field": "license_issue_date",
+      "doc_types": [
+        "DRIVER_LICENSE"
+      ],
+      "expect": "2021-01-06"
+    },
+    {
+      "entity": "driver:O7314062",
+      "field": "license_expiration",
+      "doc_types": [
+        "DRIVER_LICENSE"
+      ],
+      "expect": "2025-02-17"
+    },
+    {
+      "entity": "driver:V61930287415503",
+      "field": "license_expiration",
+      "doc_types": [
+        "DRIVER_LICENSE"
+      ],
+      "expect": "2026-06-02"
+    },
+    {
+      "entity": "vehicle:3AKJGLD59HSKR736",
+      "field": "vin",
+      "expect": "3AKJGLD59HSKR736",
+      "why": "16 characters, kept as printed"
+    },
+    {
+      "entity": "loss_run:AL:GAL8100457",
+      "field": "total_incurred",
+      "expect": 77459
+    },
+    {
+      "entity": "ifta:2025-12-31",
+      "field": "taxpayer_name",
+      "expect": "COBALT MESA TRANSPORT LLC"
+    },
+    {
+      "entity": "ifta:2026-03-31",
+      "field": "penalty",
+      "expect": 346.42
+    },
+    {
+      "entity": "ifta:2025-09-30",
+      "field": "total_miles",
+      "expect": 137594
+    },
+    {
+      "entity": "ifta:2026-06-30",
+      "field": "total_miles",
+      "expect": 103773,
+      "why": "skewed photocopy"
+    }
   ],
   "derived": {
-    "cdl_years": {"OSEI": 5.8, "VOLKOV": 4.4, "WHITFIELD": 5.0, "MORALES": 3.4},
-    "cdl_source": {"OSEI": "photographed CDL ISS 01/06/2021 (MVR card issue 04/09/2025 would give 1.5 yrs, a false REFER)",
-                   "VOLKOV": "MVR 'CDL ISSUED 05/28/2022' (plus transfer from PA: earlier, unknown)",
-                   "WHITFIELD": "earliest MVR CDL notice 10/04/2021 (no issue date on the NJ MVR)"},
+    "cdl_years": {
+      "OSEI": 5.8,
+      "VOLKOV": 4.4,
+      "WHITFIELD": 5.0,
+      "MORALES": 3.4
+    },
+    "cdl_source": {
+      "OSEI": "photographed CDL ISS 01/06/2021 (MVR card issue 04/09/2025 would give 1.5 yrs, a false REFER)",
+      "VOLKOV": "MVR 'CDL ISSUED 05/28/2022' (plus transfer from PA: earlier, unknown)",
+      "WHITFIELD": "earliest MVR CDL notice 10/04/2021 (no issue date on the NJ MVR)"
+    },
     "tiv_cost_new_total": 193000,
     "units_missing_stated_value": 4,
     "power_units_scheduled": 4,
@@ -38,27 +165,89 @@
     "ifta_states_ky_counted_once": true
   },
   "rules": {
-    "SUB-01": "REFER", "SUB-02": "PASS", "SUB-08": "REFER",
-    "ST-01": "PASS", "ST-02": "NOT_EVALUATED", "ST-04": "REFER",
-    "PRO-01": "PASS", "PRO-02": "PASS", "PRO-03": "NOT_EVALUATED", "PRO-05": "NOT_EVALUATED",
-    "PRO-06": "PASS", "PRO-07": "PASS", "PRO-08": "PASS",
-    "DRV-02": "REFER", "DRV-03": "REFER", "DRV-04": "PASS",
-    "CONFLICTS": "REFER", "RTE-01": "FLAG"
+    "SUB-01": "REFER",
+    "SUB-02": "PASS",
+    "SUB-08": "REFER",
+    "ST-01": "PASS",
+    "ST-02": "NOT_EVALUATED",
+    "ST-04": "REFER",
+    "PRO-01": "PASS",
+    "PRO-02": "PASS",
+    "PRO-03": "NOT_EVALUATED",
+    "PRO-05": "NOT_EVALUATED",
+    "PRO-06": "PASS",
+    "PRO-07": "PASS",
+    "PRO-08": "PASS",
+    "DRV-02": "REFER",
+    "DRV-03": "REFER",
+    "DRV-04": "PASS",
+    "CONFLICTS": "REFER",
+    "RTE-01": "FLAG"
   },
   "decision": "REFER",
   "decision_if_operating_states_mode_decline": "DECLINE",
   "team": "Small Fleet",
   "conflicts": [
-    {"entity": "applicant", "field": "business_name", "why": "INC vs LLC (Q4 2025 IFTA)"},
-    {"entity": "applicant", "field": "agency_name", "why": "Bayline Insurance Services vs Agency"},
-    {"entity": "applicant", "field": "agency_phone"},
-    {"entity": "driver:M5520814", "field": "dob", "why": "10/03 vs 10/30/1991"},
-    {"entity": "driver:O7314062", "field": "license_expiration", "why": "old card in photo"},
-    {"entity": "driver:V61930287415503", "field": "license_expiration", "why": "old card in photo"},
-    {"entity": "vehicle:4V4NC9EH9LN248615", "field": "make", "why": "Volvo vs Freightliner in loss run"},
-    {"entity": "coverage", "field": "reefer_breakdown", "why": "quote Yes vs app No"},
-    {"entity": "prior_policy:2022-03-08", "field": "loss_run", "why": "'LOSS RUNS ATTACHED' but none in package"},
-    {"entity": "driver:W38215604720918", "field": "mvr", "kind": "DUPLICATE", "why": "stale 09/24/2025 MVR superseded"}
+    {
+      "entity": "applicant",
+      "field": "business_name",
+      "why": "INC vs LLC (Q4 2025 IFTA)"
+    },
+    {
+      "entity": "applicant",
+      "field": "agency_name",
+      "why": "Bayline Insurance Services vs Agency"
+    },
+    {
+      "entity": "applicant",
+      "field": "agency_phone"
+    },
+    {
+      "entity": "driver:M5520814",
+      "field": "dob",
+      "why": "10/03 vs 10/30/1991"
+    },
+    {
+      "entity": "driver:O7314062",
+      "field": "license_expiration",
+      "why": "old card in photo"
+    },
+    {
+      "entity": "driver:V61930287415503",
+      "field": "license_expiration",
+      "why": "old card in photo"
+    },
+    {
+      "entity": "vehicle:4V4NC9EH9LN248615",
+      "field": "make",
+      "why": "Volvo vs Freightliner in loss run"
+    },
+    {
+      "entity": "coverage",
+      "field": "reefer_breakdown",
+      "why": "quote Yes vs app No"
+    },
+    {
+      "entity": "prior_policy:2022-03-08",
+      "field": "loss_run",
+      "why": "'LOSS RUNS ATTACHED' but none in package"
+    },
+    {
+      "entity": "driver:W38215604720918",
+      "field": "mvr",
+      "kind": "DUPLICATE",
+      "why": "stale 09/24/2025 MVR superseded"
+    },
+    {
+      "entity": "vehicle:1XPBD49X5MD735204",
+      "field": "scheduled",
+      "why": "2021 Peterbilt in claim GA1093318, not on schedule"
+    },
+    {
+      "entity": "driver:BRANDT-KEVIN",
+      "field": "scheduled",
+      "why": "Kevin Brandt in claim GA1093318, not on schedule"
+    }
   ],
   "ai_findings_expected": [
     "Osei: photographed CDL expired 02/17/2025, MVR shows current card issued 04/09/2025 (possible ~51-day gap)",

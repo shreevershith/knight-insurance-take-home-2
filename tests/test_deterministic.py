@@ -85,3 +85,36 @@ def test_stale_mvr_is_superseded_and_kept():
     assert conflicts[0].status == "RESOLVED" and conflicts[0].suggested_field_id == 1
     assert old_date.status == old_viol.status == "SUPERSEDED"
     assert new_date.status == new_lic.status == "OK"
+
+
+def test_dropped_middle_name_is_compatible_but_different_words_are_not():
+    assert names_compatible("Nathaniel Osei", "OSEI, NATHANIEL K")
+    assert not names_compatible("BAYLINE INSURANCE SERVICES INC", "BAYLINE INSURANCE AGENCY INC")
+
+
+def test_license_class_normalizes_to_letter():
+    assert normalize("license_class", "A COMB VEH>26,000 GVWR") == normalize("license_class", "CLASS A") == "A"
+
+
+def test_claims_checked_against_schedules():
+    from app.conflicts import _claims_vs_schedules
+    from app.db import Field
+
+    def f(fid, doc_type, etype, key, name, value):
+        return Field(id=fid, doc_type=doc_type, entity_type=etype, entity_key=key, name=name, value=value, method="llm_text")
+    fields = [
+        f(1, "VEHICLE_SCHEDULE", "vehicle", "vehicle:4V4NC9EH9LN248615", "make", "VOLVO"),
+        f(2, "DRIVER_SCHEDULE", "driver", "driver:V1", "first_name", "ALEKSANDR P"),
+        f(3, "DRIVER_SCHEDULE", "driver", "driver:V1", "last_name", "VOLKOV"),
+        f(4, "LOSS_RUN", "claim", "claim:A", "vin", "4V4NC9EH9LN248615"),
+        f(5, "LOSS_RUN", "claim", "claim:A", "vehicle", "2020 - FREIGHTLINER -"),
+        f(6, "LOSS_RUN", "claim", "claim:A", "driver_name", "ALEKSANDR P VOLKOV"),
+        f(7, "LOSS_RUN", "claim", "claim:B", "vin", "1XPBD49X5MD735204"),
+        f(8, "LOSS_RUN", "claim", "claim:B", "driver_name", "KEVIN BRANDT"),
+    ]
+    found = {(c.entity_key, c.field_name): c for c in _claims_vs_schedules(1, fields)}
+    make = found[("vehicle:4V4NC9EH9LN248615", "make")]
+    assert make.suggested_field_id == 1 and "4V4 is VOLVO" in make.suggestion_reason   # VIN prefix decides
+    assert ("vehicle:1XPBD49X5MD735204", "scheduled") in found
+    assert ("driver:BRANDT-KEVIN", "scheduled") in found
+    assert not any(k[0].startswith("driver:") and "VOLKOV" in k[0] for k in found)      # scheduled driver: no flag

@@ -63,10 +63,83 @@ def detect(db, submission_id) -> list[Conflict]:
             found.append(conflict)
 
     found.extend(_listed_terms_without_loss_runs(submission_id, fields))
+    found.extend(_claims_vs_schedules(submission_id, fields))
     _apply_human_decisions(db, submission_id, found)
     for c in found:
         db.add(c)
     return found
+
+
+# World manufacturer identifiers (first 3 VIN characters) of common heavy-truck makes. Public
+# reference data (SAE/NHTSA), used to suggest which source is right when makes disagree.
+TRUCK_WMI = {"4V4": "VOLVO", "4V5": "VOLVO", "4VG": "VOLVO", "1FU": "FREIGHTLINER", "1FV": "FREIGHTLINER",
+             "3AK": "FREIGHTLINER", "3AL": "FREIGHTLINER", "1XP": "PETERBILT", "2XP": "PETERBILT",
+             "1XK": "KENWORTH", "2XK": "KENWORTH", "3HS": "INTERNATIONAL", "1HS": "INTERNATIONAL",
+             "3HA": "INTERNATIONAL", "1M1": "MACK", "1M2": "MACK", "5KJ": "WESTERN STAR"}
+SCHEDULE_TYPES = {"VEHICLE_SCHEDULE", "DRIVER_SCHEDULE", "QUOTE_FORM", "APPLICATION"}
+_MAKES = sorted(set(TRUCK_WMI.values()), key=len, reverse=True)
+
+
+def _claims_vs_schedules(submission_id, fields) -> list[Conflict]:
+    """Loss-run claims checked against the submitted schedules: a claim vehicle whose make differs
+    from the scheduled unit with the same VIN, and claim vehicles/drivers that are not scheduled at all
+    (the loss run itself may flag them 'unreported')."""
+    claims = defaultdict(dict)
+    sched_vehicles = defaultdict(dict)
+    roster = defaultdict(dict)
+    for f in fields:
+        if f.entity_type == "claim":
+            claims[f.entity_key][f.name] = f
+        elif f.entity_type == "vehicle" and f.doc_type in SCHEDULE_TYPES:
+            sched_vehicles[f.entity_key][f.name] = f
+        elif f.entity_type == "driver" and f.doc_type in SCHEDULE_TYPES:
+            roster[f.entity_key][f.name] = f
+    roster_names = []
+    for parts in roster.values():
+        full = parts.get("full_name")
+        name = full.value if full else " ".join(p.value for n in ("first_name", "last_name") if (p := parts.get(n)))
+        if name:
+            roster_names.append(name)
+
+    out = []
+    for claim_key, c in claims.items():
+        vin_f, veh_f = c.get("vin"), c.get("vehicle")
+        if vin_f and len(norm_id(vin_f.value)) >= 11:
+            vin = norm_id(vin_f.value)
+            sched = sched_vehicles.get(f"vehicle:{vin}")
+            claim_make = next((m for m in _MAKES if veh_f and m in veh_f.value.upper()), None)
+            if sched and claim_make and sched.get("make") and normalize("make", sched["make"].value) != claim_make:
+                wmi = TRUCK_WMI.get(vin[:3])
+                values = [{"value": sched["make"].value, "field_id": sched["make"].id, "source": _source(sched["make"]),
+                           "doc_type": sched["make"].doc_type},
+                          {"value": veh_f.value, "field_id": veh_f.id, "source": _source(veh_f), "doc_type": "LOSS_RUN"}]
+                suggested = next((v["field_id"] for v in values if wmi and wmi in v["value"].upper()), None)
+                out.append(Conflict(
+                    submission_id=submission_id, kind="CONFLICT", entity_key=f"vehicle:{vin}", field_name="make",
+                    description=f"Same VIN, different make: schedule vs claim {claim_key.split(':', 1)[1]}",
+                    values=values, suggested_field_id=suggested,
+                    suggestion_reason=f"VIN prefix {vin[:3]} is {wmi}" if wmi else "no VIN-prefix reference"))
+            elif not sched:
+                ids = [x for x in (vin_f, veh_f, c.get("unit_reported")) if x]
+                out.append(Conflict(
+                    submission_id=submission_id, kind="CONFLICT", entity_key=f"vehicle:{vin}", field_name="scheduled",
+                    description=(f"Vehicle in claim {claim_key.split(':', 1)[1]} ({veh_f.value if veh_f else '?'} "
+                                 f"VIN {vin}) is not on the vehicle schedule"
+                                 + (f"; loss run 'unreported unit' = {c['unit_reported'].value}" if c.get("unit_reported") else "")),
+                    values=[{"value": x.value, "field_id": x.id, "source": _source(x), "doc_type": "LOSS_RUN"} for x in ids],
+                    suggested_field_id=None, suggestion_reason="ask the agent whether this unit is still operated"))
+        drv_f = c.get("driver_name")
+        if drv_f and roster_names and not any(names_compatible(drv_f.value, n) for n in roster_names):
+            ids = [x for x in (drv_f, c.get("driver_dob"), c.get("driver_reported")) if x]
+            out.append(Conflict(
+                submission_id=submission_id, kind="CONFLICT",
+                entity_key=f"driver:{'-'.join(sorted(normalize('full_name', drv_f.value).split()))}",
+                field_name="scheduled",
+                description=(f"Driver in claim {claim_key.split(':', 1)[1]} ({drv_f.value}) is not on the driver schedule"
+                             + (f"; loss run driver status = {c['driver_reported'].value}" if c.get("driver_reported") else "")),
+                values=[{"value": x.value, "field_id": x.id, "source": _source(x), "doc_type": "LOSS_RUN"} for x in ids],
+                suggested_field_id=None, suggestion_reason="ask the agent for this driver's status and MVR"))
+    return out
 
 
 def _apply_human_decisions(db, submission_id, found: list[Conflict]) -> None:
@@ -140,7 +213,9 @@ def _compare(submission_id, key, name, items, by_driver_page) -> Conflict | None
         shown = _display_value(f, name, by_driver_page)
         values.append({"value": shown, "field_id": f.id, "source": _source(f), "doc_type": f.doc_type,
                        "page_id": f.page_id, "norm": normalize(name if name != "full_name" else "full_name", shown)})
-    distinct_docs = {v["source"].split(" p")[0] for v in values}
+    # Independent sources = distinct (file, document type). One PDF can bundle several documents
+    # (the "MVR" file holds license photos), so a photo and an MVR in the same file still compare.
+    distinct_docs = {(v["source"].split(" p")[0], v["doc_type"]) for v in values}
     if len(distinct_docs) < 2:
         return None
     if name in ("full_name", "business_name", "agency_name"):

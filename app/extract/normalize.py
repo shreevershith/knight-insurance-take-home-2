@@ -123,6 +123,14 @@ def names_compatible(a, b) -> bool:
     long_b = {t for t in tb if len(t) > 1}
     if not (long_a & long_b):
         return False
+    # One side omits a middle name/initial ('Nathaniel Osei' vs 'OSEI, NATHANIEL K'): compatible when
+    # every full word of the shorter name appears in the longer one. A DIFFERENT word (INC vs LLC,
+    # SERVICES vs AGENCY) still fails below.
+    shorter, longer = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    short_long = {t for t in shorter if len(t) > 1}
+    if len(short_long) >= 2 and short_long <= longer and all(
+            any(u.startswith(t) for u in longer) for t in shorter - longer):
+        return True
     rest_a, rest_b = ta - tb, tb - ta
     # remaining tokens must be initial/full-name pairs
     for t in rest_a:
@@ -173,6 +181,9 @@ def normalize(field: str, value):
         return norm_name(value)
     if field in STATE_FIELDS:
         return state_code(value) or norm_name(value)
+    if field == "license_class":  # 'A', 'CLASS A', 'A COMB VEH>26,000 GVWR' -> 'A'
+        m = re.search(r"\b(?:CLASS\s+)?([ABCDM])\b", str(value).upper())
+        return m.group(1) if m else norm_name(value)
     return " ".join(str(value).upper().split())
 
 

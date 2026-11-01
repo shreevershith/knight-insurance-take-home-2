@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.db import Conflict, RuleResult, SessionLocal, Submission  # noqa: E402
-from app.extract.normalize import normalize  # noqa: E402
+from app.extract.normalize import name_tokens, normalize  # noqa: E402
 from app.rules import derived  # noqa: E402
 from app.rules.view import SubmissionView  # noqa: E402
 
@@ -44,9 +44,10 @@ def main() -> None:
 
         d = EXPECTED["derived"]
         on, _ = derived.anchor(v, "application_date")
-        labels = {derived.driver_label(v, k).split()[-1].upper(): k for k in derived.roster(v)}
+        roster = {k: name_tokens(derived.driver_label(v, k)) for k in derived.roster(v)}
         for last, years in d["cdl_years"].items():
-            key = labels.get(last)
+            # labels come as "OSEI, NATHANIEL K" or "NATHANIEL K OSEI": match on the name token
+            key = next((k for k, toks in roster.items() if last.upper() in toks), None)
             ev = derived.cdl_evidence(v, key) if key else []
             got = derived.years_between(ev[0].on, on) if ev and on else None
             check(f"cdl_years {last}", got == years, got, years, rows)
