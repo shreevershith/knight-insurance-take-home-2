@@ -10,25 +10,25 @@ Reference dates used below: application date **10/22/2026** (KNIGHT.xlsx E7), re
 ## 1. Brief: requirements and demo checklist
 
 ### 1.1 Business requirements (system must…)
-- [ ] R1 Receive emails and attachments (agents/brokers submit by email)
-- [ ] R2 Process and classify all submitted documents
-- [ ] R3 Extract relevant information from the package
-- [ ] R4 Analyze with AI using industry knowledge; give information about the submission
-- [ ] R5 Apply business rules and underwriting guidelines (source = Knight_Guideline(Mockup).docx)
-- [ ] R6 Present final results in a web application
+- [x] R1 Receive emails and attachments (agents/brokers submit by email)
+- [x] R2 Process and classify all submitted documents
+- [x] R3 Extract relevant information from the package
+- [x] R4 Analyze with AI using industry knowledge; give information about the submission
+- [x] R5 Apply business rules and underwriting guidelines (source = Knight_Guideline(Mockup).docx)
+- [x] R6 Present final results in a web application
 
 ### 1.2 Real-world conditions it must handle
-- [ ] Misleading or wrong file names: classify by content, not by name
-- [ ] Mixed formats: digital PDFs, photographed PDFs, scans, images, handwriting
-- [ ] Duplicate information across documents
-- [ ] Conflicting information: vehicle counts, DL vs MVR, business info, dates, VINs, addresses, policy info
+- [x] Misleading or wrong file names: classify by content, not by name
+- [x] Mixed formats: digital PDFs, photographed PDFs, scans, images, handwriting  (handwriting: read by the same vision step, but no handwritten page in any test set, so not demonstrated)
+- [x] Duplicate information across documents
+- [x] Conflicting information: vehicle counts, DL vs MVR, business info, dates, VINs, addresses, policy info
 
 ### 1.3 Workflow steps
-- [ ] Intake: receive and store the email and attachments, work out what was submitted
-- [ ] Document understanding: identify types, extract, link across documents, find missing info, detect duplicates and conflicts
-- [ ] AI processing: summarize, flag underwriting concerns, detect inconsistencies, recommend, **assign confidence to extracted values and to recommendations**
-- [ ] Rules: flag incomplete, route to team, find prohibited risks, escalate for manual review
-- [ ] Results view: summary, extracted info, missing info, conflicts, AI findings, rule outcomes, recommended next actions
+- [x] Intake: receive and store the email and attachments, work out what was submitted
+- [x] Document understanding: identify types, extract, link across documents, find missing info, detect duplicates and conflicts
+- [x] AI processing: summarize, flag underwriting concerns, detect inconsistencies, recommend, **assign confidence to extracted values and to recommendations**
+- [x] Rules: flag incomplete, route to team, find prohibited risks, escalate for manual review
+- [x] Results view: summary, extracted info, missing info, conflicts, AI findings, rule outcomes, recommended next actions
 
 ### 1.4 Things to explain (video narration and interview)
 - [ ] Architecture: email ingestion, document processing, AI services, business rules, data storage, UI, workflow orchestration
@@ -42,15 +42,15 @@ Reference dates used below: application date **10/22/2026** (KNIGHT.xlsx E7), re
 - [ ] Real-world handling: poor-quality docs, missing info, conflicting data, scale
 
 ### 1.5 Prototype must demonstrate
-- [ ] Email intake (real or simulated)
-- [ ] Multiple attachment types (PDF text, PDF image, XLSX; images)
-- [ ] Document classification
-- [ ] Information extraction
-- [ ] Photographed and scanned documents
-- [ ] Conflicting-information detection
-- [ ] AI analysis and recommendations
-- [ ] Business rule execution
-- [ ] Final results presentation
+- [x] Email intake (real or simulated)
+- [x] Multiple attachment types (PDF text, PDF image, XLSX; images)
+- [x] Document classification
+- [x] Information extraction
+- [x] Photographed and scanned documents
+- [x] Conflicting-information detection
+- [x] AI analysis and recommendations
+- [x] Business rule execution
+- [x] Final results presentation
 
 ### 1.6 Video (5–15 min, due Mon 11/02/2026 11:59 PM)
 - [ ] Live demo
@@ -401,7 +401,7 @@ A real path through the same stages: one process, one DB, same data model.
    ─► web UI (summary · extracted · missing · conflicts · AI findings · rule outcomes · next actions) ─► overrides ─► audit log ─► re-run rules
 ```
 
-Stack (as built): Python 3.12 · FastAPI · **PostgreSQL 18** through SQLAlchemy and psycopg (D-33; SQLite still works by removing `DATABASE_URL`) · Jinja templates with plain JavaScript (no HTMX) · pdfplumber/pypdfium2 + openpyxl · Anthropic Claude API with per-task models (Haiku classify/extract, Sonnet transcribe, Opus analyst; D-31) · pytest. Run with `uvicorn app.web.main:app`, or `docker compose up --build` (app + Postgres 18; D-25).
+Stack (as built): Python 3.12 · FastAPI · **PostgreSQL 18** through SQLAlchemy and psycopg (D-33; SQLite still works by removing `DATABASE_URL`) · Jinja templates with plain JavaScript (no HTMX) · pdfplumber/pypdfium2 + openpyxl · Anthropic Claude API with per-task models (Haiku classify/extract, Sonnet transcribe, Opus analyst; D-31) · pytest. Run with `uvicorn app.web.main:app`, or `docker compose up --build` (app + worker + Postgres 18; D-25, D-36).
 
 **Claims check (11/01/2026, against the code).** Verified = true as written; Partial = true with the stated gap; Missing = not built (claim downgraded).
 
@@ -419,7 +419,7 @@ Stack (as built): Python 3.12 · FastAPI · **PostgreSQL 18** through SQLAlchemy
 | All guideline rules | 42 rules covering every section of the guideline. PRO-04 is covered by ST-01/ST-04, and RTE-02 is the decision mapping. An undeterminable input gives `NOT_EVALUATED` (refer, never pass). | **Verified** | `app/rules/knight_v1.yaml`; `app/rules/engine.py`; `app/rules/guideline_rules.py:145` |
 | Config-driven outcome | `operating_states_mode: decline` turns the sample from REFER to DECLINE; the rules version changes with the file. | **Verified** | `app/rules/knight_v1.yaml:12`, `app/rules/engine.py:333`; tests `test_states_dedupe_and_config_flip`, `test_config_change_changes_version` |
 | Real email ingestion, SSO/RBAC, KMS, FMCSA lookups, dashboards, multi-tenant | – | **Designed only** | |
-| Docker | `Dockerfile` (non-root, healthcheck) + `docker-compose.yml` (app + Postgres 18, secrets from `.env`). Sample 87/87 inside the container (RUN_LOG DK1). | **Verified** | `Dockerfile`, `docker-compose.yml` |
+| Docker | `Dockerfile` (non-root, healthcheck) + `docker-compose.yml` (app + workers + Postgres 18, secrets from `.env`). Sample 87/87 inside the container (RUN_LOG DK1); queue takeover checked (QU1). | **Verified** | `Dockerfile`, `docker-compose.yml` |
 
 **Scope: full, no planned cuts (D-20).** The list below is a contingency only, kept because the original brief asked for it.
 **Cut order if time runs short** (first cut first):
