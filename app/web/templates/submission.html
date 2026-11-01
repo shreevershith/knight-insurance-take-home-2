@@ -10,8 +10,8 @@
     {% if sub.decision %}Decision: <span class="badge {{ sub.decision }}">{{ sub.decision }}</span>{% endif %}
     {% if sub.team %} · Route to: <b>{{ sub.team }} underwriting</b>{% endif %}
   </p>
-  <form method="post" action="/submissions/{{ sub.id }}/reprocess" style="display:inline"><button>Reprocess</button></form>
-  <form method="post" action="/submissions/{{ sub.id }}/rerun-rules" style="display:inline"><button>Re-run rules</button></form>
+  <form method="post" action="/submissions/{{ sub.id }}/reprocess" style="display:inline"><button {% if running %}disabled{% endif %}>Reprocess</button></form>
+  <form method="post" action="/submissions/{{ sub.id }}/rerun-rules" style="display:inline"><button {% if running %}disabled{% endif %}>Re-run rules</button></form>
   <details {% if running %}open{% endif %} style="margin-top:10px"><summary>Progress log ({{ logs|length }})</summary>
     <div class="log">{% for l in logs %}<div class="{{ l.level }}">{{ l.at.strftime('%H:%M:%S') }} {{ l.message }}</div>{% endfor %}</div>
   </details>
@@ -20,6 +20,10 @@
 {% if sub.summary %}
 <div class="card" id="ai">
   <h2>AI findings <span class="muted small">(advisory: decisions come from the rules)</span></h2>
+  {% if sub.summary.out_of_date %}<p><span class="badge REFER">OUT OF DATE</span>
+    Written before a review change ({{ sub.summary.out_of_date }}). Rerun analysis to update.
+    <form method="post" action="/submissions/{{ sub.id }}/rerun-analysis" style="display:inline">
+      <button {% if running %}disabled{% endif %}>Rerun analysis</button></form></p>{% endif %}
   {% if sub.summary.error %}<p><span class="badge MODEL_ERROR">MODEL_ERROR</span> {{ sub.summary.error }}</p>{% else %}
   <p>{{ sub.summary.summary }}</p>
   <div class="grid">

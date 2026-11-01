@@ -33,12 +33,27 @@ def human_field(db, *, submission_id, entity_key, name, value, reason, actor, ba
     return f
 
 
+def _not_processing(db, submission_id: int) -> Submission:
+    """Human edits wait for a running job: a reprocess would replace the rows being edited."""
+    sub = db.get(Submission, submission_id)
+    if sub.status == "PROCESSING":
+        raise ReviewError("the submission is being processed; try again when it is done")
+    return sub
+
+
+def _analysis_out_of_date(sub: Submission, why: str) -> None:
+    """The AI findings were written before this change; say so instead of showing them as current."""
+    if sub.summary and not sub.summary.get("error"):
+        sub.summary = {**sub.summary, "out_of_date": why}  # reassign: JSON columns don't track mutation
+
+
 def override_field(db, field_id: int, value: str, reason: str, actor: str) -> Submission:
     if not reason.strip():
         raise ReviewError("a reason is required")
     old = db.get(Field, field_id)
     if old is None:
         raise ReviewError("field not found")
+    _not_processing(db, old.submission_id)
     new = human_field(db, submission_id=old.submission_id, entity_key=old.entity_key, name=old.name,
                       value=value, reason=reason, actor=actor, based_on=old)
     superseded = _supersede_extracted(db, old.submission_id, old.entity_key, old.name)
@@ -47,6 +62,7 @@ def override_field(db, field_id: int, value: str, reason: str, actor: str) -> Su
           after={"value": new.value, "field_id": new.id, "superseded_field_ids": superseded}, reason=reason.strip())
     sub = db.get(Submission, old.submission_id)
     evaluate(db, sub, actor=actor)
+    _analysis_out_of_date(sub, f"{old.entity_key}.{old.name} was changed by {actor}")
     return sub
 
 
@@ -59,6 +75,7 @@ def resolve_conflict(db, conflict_id: int, field_id: int, reason: str, actor: st
     chosen = next((v for v in c.values if v["field_id"] == field_id), None)
     if chosen is None:
         raise ReviewError("field is not one of the conflict's values")
+    _not_processing(db, c.submission_id)
     accepted = db.get(Field, field_id)
     superseded, human_id = [], None
     if c.field_name in FACT_FIELDS:
@@ -77,12 +94,17 @@ def resolve_conflict(db, conflict_id: int, field_id: int, reason: str, actor: st
           reason=reason.strip())
     sub = db.get(Submission, c.submission_id)
     evaluate(db, sub, actor=actor)
+    _analysis_out_of_date(sub, f"conflict {c.entity_key}.{c.field_name} was resolved by {actor}")
     return sub
 
 
 def rerun_rules(db, submission_id: int, actor: str) -> Submission:
-    sub = db.get(Submission, submission_id)
+    sub = _not_processing(db, submission_id)
+    before = (sub.decision, sub.team, sub.rules_version)
     evaluate(db, sub, actor=actor)
+    if (sub.decision, sub.team, sub.rules_version) != before:
+        _analysis_out_of_date(sub, f"rules re-run ({before[2]} -> {sub.rules_version}): "
+                                   f"decision {before[0]} -> {sub.decision}")
     return sub
 
 

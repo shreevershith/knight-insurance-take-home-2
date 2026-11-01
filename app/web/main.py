@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app import config, pipeline, review
+from app.config import data_path
 from app.db import (AuditEvent, Conflict, Document, Field, JobLog, Page, RuleResult, SessionLocal, Submission,
                     audit, init_db)
 from app.intake import ingest_eml, ingest_files
@@ -15,13 +16,16 @@ from app.log import setup_logging
 
 setup_logging()
 init_db()
+pipeline.reset_interrupted()  # nothing runs before startup: anything still PROCESSING was cut off
 app = FastAPI(title="Knight Commercial Auto Intake")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 REVIEWER = "underwriter@knight"  # prototype: no SSO; production uses the signed-in user (RBAC)
 
 
-def _start(submission_id: int) -> None:
-    threading.Thread(target=pipeline.run, args=(submission_id,), daemon=True).start()
+def _start(submission_id: int, job=pipeline.run) -> None:
+    if not pipeline.claim(submission_id):
+        raise HTTPException(409, "this submission is already being processed")
+    threading.Thread(target=job, args=(submission_id, True), daemon=True).start()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -50,11 +54,20 @@ async def create_submission(files: list[UploadFile]):
 
 @app.post("/submissions/{sub_id}/reprocess")
 def reprocess(sub_id: int):
+    _start(sub_id)
     with SessionLocal() as db:
         audit(db, sub_id, REVIEWER, "submission.reprocess", f"submission:{sub_id}")
         db.commit()
-    _start(sub_id)
     return RedirectResponse(f"/submissions/{sub_id}", status_code=303)
+
+
+@app.post("/submissions/{sub_id}/rerun-analysis")
+def rerun_analysis(sub_id: int):
+    _start(sub_id, pipeline.run_analysis)
+    with SessionLocal() as db:
+        audit(db, sub_id, REVIEWER, "analysis.rerun", f"submission:{sub_id}")
+        db.commit()
+    return RedirectResponse(f"/submissions/{sub_id}#ai", status_code=303)
 
 
 @app.get("/submissions/{sub_id}", response_class=HTMLResponse)
@@ -90,9 +103,9 @@ def show(request: Request, sub_id: int):
 def page_image(page_id: int):
     with SessionLocal() as db:
         page = db.get(Page, page_id)
-        if not page or not page.image_path or not Path(page.image_path).exists():
+        if not page or not page.image_path or not data_path(page.image_path).exists():
             raise HTTPException(404)
-        return FileResponse(page.image_path)
+        return FileResponse(data_path(page.image_path))
 
 
 @app.post("/fields/{field_id}/override")
@@ -101,7 +114,7 @@ def override_field(field_id: int, value: str = Form(...), reason: str = Form(...
         try:
             sub = review.override_field(db, field_id, value, reason, REVIEWER)
         except review.ReviewError as exc:
-            raise HTTPException(400, str(exc))
+            raise HTTPException(409 if "being processed" in str(exc) else 400, str(exc))
         db.commit()
         return RedirectResponse(f"/submissions/{sub.id}#rules", status_code=303)
 
@@ -112,7 +125,7 @@ def resolve_conflict(conflict_id: int, field_id: int = Form(...), reason: str = 
         try:
             sub = review.resolve_conflict(db, conflict_id, field_id, reason, REVIEWER)
         except review.ReviewError as exc:
-            raise HTTPException(400, str(exc))
+            raise HTTPException(409 if "being processed" in str(exc) else 400, str(exc))
         db.commit()
         return RedirectResponse(f"/submissions/{sub.id}#conflicts", status_code=303)
 
@@ -120,6 +133,9 @@ def resolve_conflict(conflict_id: int, field_id: int = Form(...), reason: str = 
 @app.post("/submissions/{sub_id}/rerun-rules")
 def rerun_rules(sub_id: int):
     with SessionLocal() as db:
-        review.rerun_rules(db, sub_id, REVIEWER)
+        try:
+            review.rerun_rules(db, sub_id, REVIEWER)
+        except review.ReviewError as exc:
+            raise HTTPException(409, str(exc))
         db.commit()
     return RedirectResponse(f"/submissions/{sub_id}#rules", status_code=303)

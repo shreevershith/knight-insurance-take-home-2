@@ -9,7 +9,6 @@ from app.extract.normalize import parse_bool, parse_date, parse_number, state_co
 from app.rules.view import SubmissionView
 
 ROSTER_TYPES = {"DRIVER_SCHEDULE", "VEHICLE_SCHEDULE", "QUOTE_FORM", "APPLICATION"}
-_CDL_EVENT = re.compile(r"\bCDL\b|COMMERCIAL", re.I)
 
 
 @dataclass
@@ -51,10 +50,15 @@ def is_commercial(license_class, commercial_flag) -> bool | None:
     return None
 
 
-def cdl_evidence(v: SubmissionView, key: str) -> list[Evidence]:
+def cdl_evidence(v: SubmissionView, key: str, cdl_event: str | None = None) -> list[Evidence]:
     """Every document that proves a CDL was held on a date (D-26). The earliest is a lower bound on
     CDL experience. A card's issue date proves a CDL from that date (not that it started then);
-    'first licensed' covers any license, so it is not used."""
+    'first licensed' covers any license, so it is not used. cdl_event is the rules YAML pattern
+    (patterns.cdl_event) for MVR history events that name a CDL; None loads it from the config."""
+    if cdl_event is None:
+        from app.rules.engine import load_config  # engine imports this module
+        cdl_event = load_config()["patterns"]["cdl_event"]
+    event_re = re.compile(cdl_event, re.I)
     out: list[Evidence] = []
     per_page = defaultdict(dict)
     for f in v.by_entity.get(key, []):
@@ -72,7 +76,7 @@ def cdl_evidence(v: SubmissionView, key: str) -> list[Evidence]:
             out.append(Evidence(d, f"CDL issue date {cdl_date.value} ({cdl_date.doc_type})", [cdl_date.id]))
     for ev_key in v.entities(f"license_event:{key}:"):
         when, what = v.value(ev_key, "date"), v.value(ev_key, "event")
-        if what.raw and _CDL_EVENT.search(what.raw) and (d := parse_date(when.raw)):
+        if what.raw and event_re.search(what.raw) and (d := parse_date(when.raw)):
             out.append(Evidence(d, f"MVR history: {what.raw} {when.raw}", when.field_ids + what.field_ids))
     return sorted(out, key=lambda e: e.on)
 

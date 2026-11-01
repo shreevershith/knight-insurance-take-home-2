@@ -17,7 +17,8 @@ BLOB_DIR = DATA_DIR / "blobs"
 PAGE_DIR = DATA_DIR / "pages"
 CACHE_DIR = DATA_DIR / _env("LLM_CACHE_DIR", "llm_cache")  # a fresh dir = a fully measured run
 USAGE_LOG = DATA_DIR / "llm_usage.jsonl"  # one line per model call: the cost ledger (RUN_LOG.md)
-DB_URL = f"sqlite:///{(DATA_DIR / 'knight.db').as_posix()}"
+# SQLite by default; set DATABASE_URL (e.g. postgresql+psycopg://...) for Postgres. Same schema.
+DB_URL = _env("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'knight.db').as_posix()}"
 
 CLAUDE_MODEL = _env("CLAUDE_MODEL", "claude-opus-5-5")
 CLAUDE_EFFORT = _env("CLAUDE_EFFORT", "medium")
@@ -61,3 +62,19 @@ for d in (DATA_DIR, BLOB_DIR, PAGE_DIR, CACHE_DIR):
 
 def llm_configured() -> bool:
     return bool(_env("ANTHROPIC_API_KEY") or _env("ANTHROPIC_AUTH_TOKEN"))
+
+
+def stored_path(path) -> str:
+    """Path as stored in the DB: relative to DATA_DIR, so the data folder (or a container volume)
+    can move without breaking rows."""
+    path = Path(path)
+    try:
+        return path.resolve().relative_to(DATA_DIR.resolve()).as_posix()
+    except ValueError:
+        return str(path)  # outside DATA_DIR (shouldn't happen): keep as given
+
+
+def data_path(stored: str) -> Path:
+    """Inverse of stored_path. Rows written before paths were relative hold absolute paths."""
+    path = Path(stored)
+    return path if path.is_absolute() else DATA_DIR / path

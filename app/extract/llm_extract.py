@@ -1,5 +1,6 @@
 """One schema-driven LLM extractor for every non-tabular page (text layer or vision transcript)."""
 from app import llm
+from app.config import data_path
 from app.db import Page
 from app.extract.spec import SPEC
 
@@ -62,7 +63,7 @@ def extract_page(page: Page, doc_type: str, use_image: bool, ctx: dict, escalate
     """Returns [{group, entity_type, index, field, value, excerpt}]. Raises llm.LLMError."""
     content = []
     if use_image and page.image_path:
-        content.append(llm.image_block(page.image_path))
+        content.append(llm.image_block(data_path(page.image_path)))
     content.append({"type": "text", "text": (
         f"Document type: {doc_type}\nFields to extract:\n{_field_guide(doc_type)}\n\n"
         f"<page_text>\n{page.text}\n</page_text>")})

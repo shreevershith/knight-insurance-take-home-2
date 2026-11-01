@@ -59,6 +59,18 @@ def validate_config(cfg) -> list[str]:
                  "dot_medical_age", "valid_license_statuses"):
         if name not in cfg["params"]:
             errors.append(f"params.{name} is required")
+    pats = cfg.get("patterns") or {}
+    regexes = dict((pats.get("commodity_prohibited") or {}), cdl_event=pats.get("cdl_event"))
+    for name in ("PRO-02", "PRO-06", "PRO-08", "cdl_event"):
+        if not regexes.get(name):
+            errors.append(f"patterns: '{name}' is required")
+    for name, pattern in regexes.items():
+        try:
+            re.compile(pattern or "")
+        except re.error as exc:
+            errors.append(f"patterns.{name}: invalid regex ({exc})")
+    if not isinstance(pats.get("border_states"), list):
+        errors.append("patterns.border_states must be a list of state codes")
     seen = set()
     for i, spec in enumerate(cfg["rules"] or []):
         rid = spec.get("id") if isinstance(spec, dict) else None
@@ -254,7 +266,7 @@ def cdl_experience(v: SubmissionView, cfg) -> Result:
                                            v.value(key, "commercial_license", {"MVR"}).raw)
         if commercial is False:
             return False, "no CDL (see DRV-02)", []
-        evidence = derived.cdl_evidence(v, key)
+        evidence = derived.cdl_evidence(v, key, cfg["patterns"]["cdl_event"])
         if not evidence:
             return None, "no documented CDL date; experience not determinable", []
         first = evidence[0]
@@ -353,14 +365,14 @@ def no_hazmat(v, cfg):
 
 @rule("PRO-02")
 def no_lithium(v, cfg):
-    return _commodity_check(v, r"lithium|batter", "Lithium battery cargo")
+    return _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-02"], "Lithium battery cargo")
 
 
 @rule("PRO-03")
 def border_proximity(v, cfg):
     cross = v.value("operations", "cross_border")
     states, ids = derived.operating_states(v)
-    border = sorted(states & {"CA", "AZ", "NM", "TX"})
+    border = sorted(states & set(cfg["patterns"]["border_states"]))
     answer = f"cross-border answered {cross.raw}" if cross.raw else "cross-border not answered"
     return Result(None, f"Within 50 miles of the US/Mexico border is not determinable ({answer}, which is a "
                         f"different question; border-state miles: {', '.join(border) or 'none found'})",
@@ -379,7 +391,7 @@ def no_towing(v, cfg):
     towing = v.value("operations", "towing")
     if towing.norm is True:
         return Result(False, "Towing/recovery: answered Yes", towing.field_ids)
-    return _commodity_check(v, r"tow|recovery|wreck", "Towing/recovery")
+    return _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-06"], "Towing/recovery")
 
 
 @rule("PRO-07")
@@ -389,7 +401,7 @@ def no_intermodal(v, cfg):
 
 @rule("PRO-08")
 def no_waste(v, cfg):
-    return _commodity_check(v, r"waste|garbage|refuse|trash|scrap|recycl", "Waste disposal")
+    return _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-08"], "Waste disposal")
 
 
 def _current_prior_policy_units(v: SubmissionView):

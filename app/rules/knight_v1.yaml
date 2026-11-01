@@ -23,6 +23,19 @@ params:
   dot_medical_age: 65
   valid_license_statuses: [VALID]
 
+# Text patterns the rules match (case-insensitive regex). Kept here, not in code, so underwriting can
+# widen a keyword list without a code change; every change shows up in rules_version (file hash).
+patterns:
+  # D-29: prohibited exposures decided from the commodity list ("not listed" is weaker than "answered No")
+  commodity_prohibited:
+    PRO-02: 'lithium|batter'
+    PRO-06: 'tow|recovery|wreck'
+    PRO-08: 'waste|garbage|refuse|trash|scrap|recycl'
+  # PRO-03: states on the US/Mexico border, reported as context (proximity itself isn't determinable)
+  border_states: [CA, AZ, NM, TX]
+  # D-26: MVR history events that prove a CDL was held on that date
+  cdl_event: '\bCDL\b|COMMERCIAL'
+
 # outcome: what happens when the rule fails. PASS / FLAG / REFER / DECLINE.
 rules:
   - id: SUB-01

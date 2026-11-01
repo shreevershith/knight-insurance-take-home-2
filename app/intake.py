@@ -15,7 +15,7 @@ import openpyxl
 import pdfplumber
 import pypdfium2 as pdfium
 
-from app.config import BLOB_DIR, PAGE_DIR
+from app.config import BLOB_DIR, PAGE_DIR, data_path, stored_path
 from app.db import Document, Page, Submission, audit
 from app.log import get_logger
 
@@ -79,7 +79,7 @@ def _add_file(db, sub, filename, data, media_type, parent, seen, depth) -> Docum
     media_type = media_type if media_type and media_type != "application/octet-stream" else (
         mimetypes.guess_type(filename)[0] or "application/octet-stream")
     doc = Document(submission_id=sub.id, parent_id=parent.id if parent else None, filename=filename,
-                   sha256=digest, blob_path=str(store_blob(data, filename)), media_type=media_type,
+                   sha256=digest, blob_path=stored_path(store_blob(data, filename)), media_type=media_type,
                    size=len(data))
     db.add(doc)
     db.flush()
@@ -119,7 +119,7 @@ def split_pages(db, doc: Document) -> None:
     """Create Page rows: PDF pages, XLSX sheets, or a single image page."""
     if doc.status != "OK":
         return
-    path = Path(doc.blob_path)
+    path = data_path(doc.blob_path)
     suffix = path.suffix.lower()
     try:
         if suffix == ".pdf":
@@ -127,7 +127,7 @@ def split_pages(db, doc: Document) -> None:
         elif suffix in (".xlsx", ".xlsm"):
             _split_xlsx(db, doc, path)
         elif suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
-            db.add(Page(document_id=doc.id, page_no=1, image_path=str(path), has_text_layer=False))
+            db.add(Page(document_id=doc.id, page_no=1, image_path=stored_path(path), has_text_layer=False))
         else:
             doc.status, doc.error = "UNSUPPORTED", f"unsupported file type {suffix or doc.media_type}"
     except Exception as exc:  # corrupt file: explicit state, never a guess
@@ -146,7 +146,7 @@ def _split_pdf(db, doc, path):
             has_text = len(text.strip()) >= MIN_TEXT_CHARS
             db.add(Page(document_id=doc.id, page_no=i + 1, has_text_layer=has_text,
                         text=text if has_text else "", text_source="text_layer" if has_text else "",
-                        image_path=str(image_path)))
+                        image_path=stored_path(image_path)))
 
 
 def cell_text(cell, cached) -> str:

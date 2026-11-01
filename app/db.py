@@ -7,7 +7,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship,
 
 from app.config import DB_URL
 
-engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
+# check_same_thread is a SQLite-only option (the web app reads from request threads and a worker thread)
+engine = create_engine(DB_URL, connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {})
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 

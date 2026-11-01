@@ -33,14 +33,41 @@ def progress(db, sub: Submission, message: str, level: str = "INFO") -> None:
     log.info(message, submission_id=sub.id)
 
 
-def run(submission_id: int) -> None:
+def claim(submission_id: int) -> bool:
+    """One active job per submission. An atomic conditional UPDATE (safe on SQLite and Postgres): only
+    the caller that flips the row to PROCESSING runs the job; a second click or worker gets False.
+    Production: the job table is claimed with SELECT ... FOR UPDATE SKIP LOCKED and a lease (D-25)."""
+    with SessionLocal() as db:
+        n = (db.query(Submission).filter(Submission.id == submission_id, Submission.status != "PROCESSING")
+             .update({"status": "PROCESSING", "step": "Queued"}, synchronize_session=False))
+        db.commit()
+        return n == 1
+
+
+def reset_interrupted() -> int:
+    """At startup nothing is running yet, so a submission still PROCESSING was cut off by a restart.
+    It is marked INTERRUPTED (visible, with a log line) rather than left spinning forever.
+    Production: a worker lease that expires does this without a restart."""
+    with SessionLocal() as db:
+        stuck = db.query(Submission).filter(Submission.status == "PROCESSING").all()
+        for sub in stuck:
+            sub.status = "INTERRUPTED"
+            sub.step = "Interrupted by a restart: reprocess to continue"
+            db.add(JobLog(submission_id=sub.id, level="WARN", message=sub.step))
+        db.commit()
+        return len(stuck)
+
+
+def run(submission_id: int, claimed: bool = False) -> None:
+    if not claimed and not claim(submission_id):
+        log.warning("submission already processing; not started twice", submission_id=submission_id)
+        return
     db = SessionLocal()
     sub = db.get(Submission, submission_id)
     llm.run_id = f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}"
     if config.RUN_LABEL:
         llm.run_id += f"-{config.RUN_LABEL}"
     try:
-        sub.status = "PROCESSING"
         reset_for_reprocess(db, sub)
         progress(db, sub, "Splitting files into pages")
         docs = [d for d in sub.documents if d.status == "OK"]
@@ -109,6 +136,32 @@ def run(submission_id: int) -> None:
         sub.status = "FAILED"
         progress(db, sub, f"Pipeline failed: {type(exc).__name__}: {exc}", "ERROR")
         log.error("pipeline failed", submission_id=submission_id, trace=traceback.format_exc())
+    finally:
+        db.close()
+
+
+def run_analysis(submission_id: int, claimed: bool = False) -> None:
+    """Re-run only the AI analyst (after human review made its findings out of date)."""
+    if not claimed and not claim(submission_id):
+        return
+    from app.analyst import analyze
+    db = SessionLocal()
+    sub = db.get(Submission, submission_id)
+    llm.run_id = f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-analysis"
+    try:
+        progress(db, sub, "AI analyst: re-running on the reviewed values")
+        try:
+            sub.summary = analyze(db, sub)
+        except llm.LLMError as exc:
+            sub.summary = {"error": f"MODEL_ERROR: {exc}"}
+            progress(db, sub, f"AI analyst failed: {exc}", "ERROR")
+        sub.status = "DONE"
+        progress(db, sub, f"Done: {sub.decision} -> {sub.team}")
+    except Exception as exc:
+        db.rollback()
+        sub = db.get(Submission, submission_id)
+        sub.status = "FAILED"
+        progress(db, sub, f"Analysis failed: {type(exc).__name__}: {exc}", "ERROR")
     finally:
         db.close()
 
@@ -191,7 +244,7 @@ def _extract(db, sub, doc: Document, page: Page, page_ctx: dict, known_drivers: 
     ctx = {"submission_id": sub.id, "page_id": page.id, "doc_type": page.doc_type}
     try:
         if page.text_source == "xlsx" and page.doc_type in TABULAR_TYPES:
-            facts, method = extract_sheet(doc.blob_path, page.page_no - 1), "xlsx"
+            facts, method = extract_sheet(config.data_path(doc.blob_path), page.page_no - 1), "xlsx"
             if not facts:
                 facts, method = extract_page(page, page.doc_type, False, ctx), "llm_text"
         else:

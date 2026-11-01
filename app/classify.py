@@ -103,7 +103,7 @@ VISION_SYSTEM = (
 def _vision(page: Page, ctx: dict, escalate: bool, reason: str) -> dict:
     return llm.structured_call(
         task="classify_vision", system=VISION_SYSTEM, schema=_VISION_SCHEMA, max_tokens=16000,
-        content=[llm.image_block(page.image_path),
+        content=[llm.image_block(config.data_path(page.image_path)),
                  {"type": "text", "text": "Classify and transcribe this page."}], ctx=ctx,
         escalate=escalate, reason=reason)
 
