@@ -4,7 +4,9 @@ from collections import defaultdict
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from urllib.parse import quote
+
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app import config, pipeline, review
@@ -28,12 +30,36 @@ def _start(submission_id: int, job=pipeline.run) -> None:
     threading.Thread(target=job, args=(submission_id, True), daemon=True).start()
 
 
+# Pipeline stages shown as a stepper; each starts with one of these progress messages.
+STAGES = [("Splitting", "Split"), ("Classifying", "Classify"), ("Extracting", "Extract"),
+          ("Cross-checking", "Cross-check"), ("Detecting", "Conflicts"), ("Applying", "Rules"),
+          ("AI analyst", "AI analyst"), ("Done", "Done")]
+
+
+def _stage(logs) -> int:
+    """Index of the current stage, from the progress log of the latest run."""
+    current = -1
+    for entry in logs:
+        if entry.message.startswith("=== New run"):
+            current = -1
+        for i, (prefix, _) in enumerate(STAGES):
+            if entry.message.startswith(prefix):
+                current = i
+    return current
+
+
+def _back(url: str, message: str, anchor: str = "") -> RedirectResponse:
+    """Redirect after an action, carrying a confirmation shown as a toast."""
+    return RedirectResponse(f"{url}?ok={quote(message)}{anchor}", status_code=303)
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     with SessionLocal() as db:
         subs = db.query(Submission).order_by(Submission.id.desc()).all()
         return templates.TemplateResponse(request, "index.html", {
-            "subs": subs, "llm_ok": config.llm_configured(), "model": config.CLAUDE_MODEL})
+            "subs": subs, "llm_ok": config.llm_configured(),
+            "routes": {t: config.route(t)[0].replace("claude-", "") for t in config.TIERS}})
 
 
 @app.post("/submissions")
@@ -49,7 +75,7 @@ async def create_submission(files: list[UploadFile]):
         db.commit()
         sub_id = sub.id
     _start(sub_id)
-    return RedirectResponse(f"/submissions/{sub_id}", status_code=303)
+    return _back(f"/submissions/{sub_id}", "Submission received. Processing has started")
 
 
 @app.post("/submissions/{sub_id}/reprocess")
@@ -58,7 +84,7 @@ def reprocess(sub_id: int):
     with SessionLocal() as db:
         audit(db, sub_id, REVIEWER, "submission.reprocess", f"submission:{sub_id}")
         db.commit()
-    return RedirectResponse(f"/submissions/{sub_id}", status_code=303)
+    return _back(f"/submissions/{sub_id}", "Reprocessing started. Your review decisions will be re-applied")
 
 
 @app.post("/submissions/{sub_id}/rerun-analysis")
@@ -67,7 +93,7 @@ def rerun_analysis(sub_id: int):
     with SessionLocal() as db:
         audit(db, sub_id, REVIEWER, "analysis.rerun", f"submission:{sub_id}")
         db.commit()
-    return RedirectResponse(f"/submissions/{sub_id}#ai", status_code=303)
+    return _back(f"/submissions/{sub_id}", "Re-running the AI analysis", "#ai")
 
 
 @app.get("/submissions/{sub_id}", response_class=HTMLResponse)
@@ -96,7 +122,39 @@ def show(request: Request, sub_id: int):
         return templates.TemplateResponse(request, "submission.html", {
             "sub": sub, "docs": docs, "logs": logs, "entities": dict(entities), "conflicts": conflicts,
             "rules": rules, "audits": audits, "replaced": replaced, "field_by_id": field_by_id, "pages": pages,
-            "running": sub.status in ("RECEIVED", "PROCESSING")})
+            "running": sub.status in ("RECEIVED", "PROCESSING"), "stages": STAGES, "stage": _stage(logs),
+            "low_confidence": sum(f.status == "LOW_CONFIDENCE" for f in fields),
+            "toast": request.query_params.get("ok", "")})
+
+
+@app.get("/submissions/{sub_id}/status")
+def status(sub_id: int, after: int = 0):
+    """Polled by the page while a job runs: status, current stage, and new log lines."""
+    with SessionLocal() as db:
+        sub = db.get(Submission, sub_id)
+        if not sub:
+            raise HTTPException(404)
+        logs = db.query(JobLog).filter(JobLog.submission_id == sub_id).order_by(JobLog.id).all()
+        return JSONResponse({
+            "status": sub.status, "step": sub.step, "decision": sub.decision, "team": sub.team,
+            "stage": _stage(logs), "running": sub.status in ("RECEIVED", "PROCESSING"),
+            "logs": [{"id": entry.id, "at": entry.at.strftime("%H:%M:%S"), "level": entry.level,
+                      "message": entry.message} for entry in logs if entry.id > after]})
+
+
+@app.get("/fields/{field_id}")
+def field_detail(field_id: int):
+    """Evidence for one value, loaded when the evidence drawer opens (keeps the page light)."""
+    with SessionLocal() as db:
+        f = db.get(Field, field_id)
+        if not f:
+            raise HTTPException(404)
+        p = f.page
+        return JSONResponse({
+            "id": f.id, "entity": f.entity_key, "field": f.name, "value": f.value, "excerpt": f.excerpt or "",
+            "method": f.method, "confidence": f.confidence, "status": f.status, "checks": f.validation or {},
+            "source": f"{p.document.filename} · page {p.page_no}" if p else "",
+            "image": f"/pages/{p.id}/image" if p and p.image_path else ""})
 
 
 @app.get("/pages/{page_id}/image")
@@ -116,7 +174,7 @@ def override_field(field_id: int, value: str = Form(...), reason: str = Form(...
         except review.ReviewError as exc:
             raise HTTPException(409 if "being processed" in str(exc) else 400, str(exc))
         db.commit()
-        return RedirectResponse(f"/submissions/{sub.id}#rules", status_code=303)
+        return _back(f"/submissions/{sub.id}", f"Value updated. Rules re-run: {sub.decision}", "#rules")
 
 
 @app.post("/conflicts/{conflict_id}/resolve")
@@ -127,7 +185,7 @@ def resolve_conflict(conflict_id: int, field_id: int = Form(...), reason: str = 
         except review.ReviewError as exc:
             raise HTTPException(409 if "being processed" in str(exc) else 400, str(exc))
         db.commit()
-        return RedirectResponse(f"/submissions/{sub.id}#conflicts", status_code=303)
+        return _back(f"/submissions/{sub.id}", f"Conflict resolved. Rules re-run: {sub.decision}", "#conflicts")
 
 
 @app.post("/submissions/{sub_id}/rerun-rules")
@@ -138,4 +196,5 @@ def rerun_rules(sub_id: int):
         except review.ReviewError as exc:
             raise HTTPException(409, str(exc))
         db.commit()
-    return RedirectResponse(f"/submissions/{sub_id}#rules", status_code=303)
+        decision = db.get(Submission, sub_id).decision
+    return _back(f"/submissions/{sub_id}", f"Rules re-run: {decision}", "#rules")

@@ -1,126 +1,398 @@
 {% extends "base.html" %}
 {% block title %}#{{ sub.id }} {{ sub.subject }}{% endblock %}
-{% block head %}{% if running %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% set open_conflicts = conflicts|selectattr('status', 'equalto', 'OPEN')|list %}
+{% set n_fields = entities.values()|map('length')|sum %}
+{% set n_pages = docs|map(attribute='pages')|map('length')|sum %}
+{% set outcome_order = ['DECLINE', 'ERROR', 'REFER', 'NOT_EVALUATED', 'FLAG', 'PASS'] %}
+{% macro ev_attrs(f) -%}data-evidence data-id="{{ f.id }}" data-running="{{ 1 if running else 0 }}"{%- endmacro %}
+{% macro meter(c) -%}
+  <span class="meter"><span class="meter-track"><span class="meter-fill {{ '' if c >= 0.85 else ('lo' if c >= 0.6 else 'vlo') }}"
+    style="width:{{ (c * 100)|round|int }}%"></span></span><span class="small mono">{{ '%.2f'|format(c) }}</span></span>
+{%- endmacro %}
+{% macro cite(e) -%}
+  {%- if e[:1] == 'F' and e[1:].isdigit() and field_by_id.get(e[1:]|int) -%}
+    {%- set f = field_by_id.get(e[1:]|int) -%}<a class="chip" href="#{{ e }}" title="{{ e }} · {{ f.entity_key }}">{{ f.name }}</a>
+  {%- else -%}<a class="chip" href="#{{ e }}">{{ e }}</a>{%- endif -%}
+{%- endmacro %}
+
+{% block head %}
+<style>
+  .crumbs { font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center; }
+  .hero { display:grid; grid-template-columns: minmax(0, 1fr) auto; gap:20px; align-items:start; padding:22px 24px; }
+  .hero .meta { color:var(--muted); font-size:12.5px; display:flex; flex-wrap:wrap; gap:4px 14px; }
+  .decision-box { text-align:right; min-width:220px; }
+  .decision-box .label { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; }
+  .decision { display:inline-flex; align-items:center; gap:10px; margin:6px 0 4px; padding:8px 16px 8px 14px; border-radius:12px;
+              font-size:22px; font-weight:700; letter-spacing:.02em; background:var(--t-bg); color:var(--t-fg);
+              animation: pop .6s var(--ease) .15s both; }
+  .decision::before { content:""; width:10px; height:10px; border-radius:50%; background:currentColor;
+                      box-shadow:0 0 0 0 currentColor; animation: halo 2.4s ease-out .8s 2; }
+  @keyframes pop { from { opacity:0; transform:scale(.92); } }
+  @keyframes halo { from { box-shadow:0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); }
+                    to { box-shadow:0 0 0 12px transparent; } }
+  .route { font-size:13px; color:var(--ink-2); }
+  .stats { grid-column: 1 / -1; display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:10px; }
+  .stat { background:var(--surface-2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; text-decoration:none !important;
+          color:inherit; transition:transform .2s var(--ease), box-shadow .2s, border-color .2s; }
+  .stat:hover { transform:translateY(-2px); box-shadow:var(--shadow-2); border-color:var(--line-strong); }
+  .stat .n { font-size:22px; font-weight:700; letter-spacing:-.02em; line-height:1.1; }
+  .stat .l { font-size:12px; color:var(--muted); }
+  .tally { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+  .hero-actions { grid-column: 1 / -1; display:flex; gap:8px; flex-wrap:wrap; align-items:center; border-top:1px solid var(--line);
+                  padding-top:14px; margin-top:2px; }
+  .hero-actions .grow { flex:1; }
+
+  /* stepper */
+  .stepper { display:grid; grid-template-columns: repeat({{ stages|length }}, minmax(0, 1fr)); gap:6px; list-style:none; padding:0; margin:4px 0 12px; }
+  .stepper li { position:relative; font-size:12px; color:var(--muted); padding-top:14px; text-align:center; transition:color .3s; }
+  .stepper li::before { content:""; position:absolute; top:3px; left:0; right:0; height:4px; border-radius:999px; background:var(--sunken);
+                        transition:background .4s var(--ease); }
+  .stepper li.done { color:var(--ink-2); } .stepper li.done::before { background:var(--good-fg); }
+  .stepper li.active { color:var(--ink); font-weight:600; }
+  .stepper li.active::before { background:linear-gradient(90deg, var(--accent-2) 0%, color-mix(in srgb, var(--accent-2) 30%, transparent) 50%, var(--accent-2) 100%);
+                               background-size:200% 100%; animation: flow 1.2s linear infinite; }
+  @keyframes flow { to { background-position:-200% 0; } }
+  .log { font-family:var(--mono); font-size:12px; max-height:240px; overflow:auto; background:#0b1220; color:#c9d1dc;
+         padding:10px 12px; border-radius:10px; margin-top:10px; }
+  .log div { animation: rise .35s var(--ease) both; } .log .t { color:#6b7a90; margin-right:8px; }
+  .log .ERROR { color:#fda29b; } .log .WARN { color:#fec84b; }
+
+  /* sticky section tabs */
+  .tabs { position:sticky; top:53px; z-index:30; display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; padding:6px;
+          margin:16px 0 0; border-radius:12px; background:color-mix(in srgb, var(--surface) 86%, transparent);
+          backdrop-filter:blur(10px); border:1px solid var(--line); box-shadow:var(--shadow-1); }
+  .tabs a { position:relative; padding:7px 12px; border-radius:8px; color:var(--muted); font-weight:500; white-space:nowrap;
+            transition:color .2s, background .2s; text-decoration:none; }
+  .tabs a:hover { color:var(--ink); background:var(--surface-2); }
+  .tabs a.on { color:var(--ink); background:var(--sunken); }
+  .tabs .n { font-size:11px; margin-left:4px; color:var(--muted); }
+  section.anchor { scroll-margin-top:120px; }
+
+  /* AI */
+  .ai-summary { font-size:14.5px; color:var(--ink-2); line-height:1.6; max-width:95ch; margin:0 0 16px; }
+  .banner { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 14px; border-radius:10px; margin:0 0 14px;
+            background:var(--warn-bg); color:var(--warn-fg); animation: rise .4s var(--ease) both; }
+  .banner .grow { flex:1; min-width:200px; color:var(--ink-2); }
+  .two { display:grid; grid-template-columns: 1fr 1fr; gap:18px; }
+  .item { border:1px solid var(--line); border-left:3px solid var(--t-fg, var(--line-strong)); border-radius:10px; padding:11px 13px;
+          margin-bottom:8px; background:var(--surface); transition:box-shadow .2s, transform .2s var(--ease); }
+  .item:hover { box-shadow:var(--shadow-2); transform:translateY(-1px); }
+  .item .t { font-weight:600; display:flex; gap:8px; align-items:baseline; justify-content:space-between; }
+  .item p { margin:4px 0 6px; color:var(--ink-2); font-size:13px; }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; }
+  .chip { font-size:11.5px; padding:1px 7px; border-radius:6px; background:var(--sunken); color:var(--ink-2); border:1px solid var(--line);
+          text-decoration:none !important; transition:background .15s, border-color .15s; font-family:var(--mono); }
+  .chip:hover { background:color-mix(in srgb, var(--accent-2) 12%, var(--surface)); border-color:var(--accent-2); }
+  .audience { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; }
+
+  /* rules */
+  .rule-msg { color:var(--ink-2); } .clause { font-size:12px; color:var(--muted); margin-top:3px; font-style:italic; }
+  .passed > summary { padding:10px 2px 4px; font-weight:500; color:var(--muted); }
+
+  /* conflicts */
+  .conflict { border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:10px; transition:box-shadow .2s, border-color .2s; }
+  .conflict:hover { box-shadow:var(--shadow-2); }
+  .conflict.RESOLVED { background:var(--surface-2); }
+  .conflict h4 { margin:0; font-size:14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .options { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:8px; margin:10px 0; }
+  .opt { position:relative; display:block; border:1.5px solid var(--line); border-radius:10px; padding:10px 12px; cursor:pointer;
+         transition:border-color .2s, background .2s, transform .2s var(--ease); }
+  .opt:hover { border-color:var(--line-strong); transform:translateY(-1px); }
+  .opt input { position:absolute; opacity:0; }
+  .opt:has(input:checked) { border-color:var(--accent-2); background:color-mix(in srgb, var(--accent-2) 7%, var(--surface)); }
+  .opt .v { font-weight:700; word-break:break-word; } .opt .s { font-size:12px; color:var(--muted); }
+  .opt .sugg { position:absolute; top:-9px; right:10px; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:999px;
+               background:var(--good-bg); color:var(--good-fg); border:1px solid color-mix(in srgb, var(--good-fg) 30%, transparent); }
+  .resolve { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .resolve input[type=text] { flex:1; min-width:200px; }
+
+  /* extracted */
+  .tools { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .tools input[type=search] { width:260px; max-width:100%; }
+  .toggle { display:inline-flex; gap:6px; align-items:center; font-size:13px; color:var(--ink-2); cursor:pointer; }
+  .entity { border:1px solid var(--line); border-radius:10px; margin-bottom:8px; overflow:hidden; background:var(--surface); }
+  .entity > summary { padding:10px 14px; display:flex; gap:10px; align-items:center; transition:background .15s; }
+  .entity > summary:hover { background:var(--surface-2); }
+  .entity > summary code { background:none; padding:0; color:var(--ink); font-weight:500; }
+  .entity table { font-size:13px; } .entity td, .entity th { padding-left:14px; }
+  .val { font-weight:600; word-break:break-word; }
+  .ex { font-family:var(--mono); font-size:11.5px; color:var(--muted); max-width:38ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fail { color:var(--bad-fg); font-size:11.5px; }
+  .edit > summary { font-size:12px; color:var(--accent-2); font-weight:600; }
+  .edit form { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; min-width:260px; }
+  .hidden { display:none !important; }
+
+  /* audit */
+  .timeline { list-style:none; margin:0; padding:0 0 0 14px; border-left:2px solid var(--line); }
+  .timeline li { position:relative; padding:0 0 14px 14px; }
+  .timeline li::before { content:""; position:absolute; left:-21px; top:5px; width:10px; height:10px; border-radius:50%;
+                         background:var(--surface); border:2px solid var(--accent-2); }
+  .timeline .what { font-weight:600; } .timeline .diff { font-family:var(--mono); font-size:11.5px; color:var(--muted); word-break:break-word; }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; } .decision-box { text-align:left; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .two { grid-template-columns: 1fr; }
+    .stepper { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap:10px; }
+    .hide-sm { display:none; }
+  }
+</style>
+{% endblock %}
+
 {% block body %}
-<div class="card">
-  <h1>{{ sub.subject }}</h1>
-  <div class="muted small">From {{ sub.sender }} · received {{ sub.received_at.strftime('%Y-%m-%d %H:%M') }} · rules {{ sub.rules_version or '-' }}</div>
-  <p>
-    <span class="badge {{ sub.status }}">{{ sub.status }}</span>
-    {% if sub.decision %}Decision: <span class="badge {{ sub.decision }}">{{ sub.decision }}</span>{% endif %}
-    {% if sub.team %} · Route to: <b>{{ sub.team }} underwriting</b>{% endif %}
-  </p>
-  <form method="post" action="/submissions/{{ sub.id }}/reprocess" style="display:inline"><button {% if running %}disabled{% endif %}>Reprocess</button></form>
-  <form method="post" action="/submissions/{{ sub.id }}/rerun-rules" style="display:inline"><button {% if running %}disabled{% endif %}>Re-run rules</button></form>
-  <details {% if running %}open{% endif %} style="margin-top:10px"><summary>Progress log ({{ logs|length }})</summary>
-    <div class="log">{% for l in logs %}<div class="{{ l.level }}">{{ l.at.strftime('%H:%M:%S') }} {{ l.message }}</div>{% endfor %}</div>
-  </details>
-</div>
+<div class="crumbs rise"><a href="/">Submissions</a><span>/</span><span>#{{ sub.id }}</span></div>
 
-{% if sub.summary %}
-<div class="card" id="ai">
-  <h2>AI findings <span class="muted small">(advisory: decisions come from the rules)</span></h2>
-  {% if sub.summary.out_of_date %}<p><span class="badge REFER">OUT OF DATE</span>
-    Written before a review change ({{ sub.summary.out_of_date }}). Rerun analysis to update.
-    <form method="post" action="/submissions/{{ sub.id }}/rerun-analysis" style="display:inline">
-      <button {% if running %}disabled{% endif %}>Rerun analysis</button></form></p>{% endif %}
-  {% if sub.summary.error %}<p><span class="badge MODEL_ERROR">MODEL_ERROR</span> {{ sub.summary.error }}</p>{% else %}
-  <p>{{ sub.summary.summary }}</p>
-  <div class="grid">
-    <div><h3>Concerns</h3>
-      {% for c in sub.summary.concerns %}<div style="margin-bottom:8px">
-        <span class="badge {{ 'DECLINE' if c.severity=='high' else ('REFER' if c.severity=='medium' else 'FLAG') }}">{{ c.severity }}</span>
-        <b>{{ c.title }}</b> <span class="muted small">conf {{ '%.2f'|format(c.confidence) }}</span><br>{{ c.detail }}
-        <div class="small muted">evidence: {{ c.evidence|join(', ') or 'none' }}{% if c.unsupported %} <span class="badge LOW_CONFIDENCE">unsupported</span>{% endif %}</div>
-      </div>{% endfor %}
-    </div>
-    <div><h3>Recommended next actions</h3>
-      {% for r in sub.summary.recommendations %}<div style="margin-bottom:8px">
-        <b>[{{ r.audience }}]</b> {{ r.action }} <span class="muted small">conf {{ '%.2f'|format(r.confidence) }}</span><br>
-        <span class="small">{{ r.reason }}</span><div class="small muted">evidence: {{ r.evidence|join(', ') or 'none' }}</div>
-      </div>{% endfor %}
-    </div>
-  </div>{% endif %}
-</div>
-{% endif %}
-
-<div class="card" id="rules">
-  <h2>Rule outcomes</h2>
-  <table><tr><th>Rule</th><th>Outcome</th><th>Result</th><th>Guideline clause</th><th>Evidence</th></tr>
-  {% for r in rules %}<tr>
-    <td><b>{{ r.rule_id }}</b><br><span class="small">{{ r.title }}</span></td>
-    <td><span class="badge {{ r.outcome }}">{{ r.outcome }}</span></td>
-    <td>{{ r.message }}</td><td class="small muted">{{ r.source_clause }}</td>
-    <td class="small">{% for fid in r.input_field_ids %}<a href="#F{{ fid }}">F{{ fid }}</a> {% endfor %}</td>
-  </tr>{% else %}<tr><td colspan="5" class="muted">Not evaluated yet.</td></tr>{% endfor %}
-  </table>
-</div>
-
-<div class="card" id="conflicts">
-  <h2>Conflicts &amp; duplicates ({{ conflicts|selectattr('status','equalto','OPEN')|list|length }} open)</h2>
-  {% for c in conflicts %}
-  <div style="border-top:1px solid var(--line); padding:8px 0">
-    <span class="badge {{ c.status }}">{{ c.status }}</span> <span class="badge FLAG">{{ c.kind }}</span>
-    <b>{{ c.field_name }}</b> · <code>{{ c.entity_key }}</code> <span class="muted">{{ c.description }}</span>
-    <table class="small">{% for v in c.values %}<tr>
-      <td><a href="#F{{ v.field_id }}">F{{ v.field_id }}</a></td><td><b>{{ v.value }}</b></td><td>{{ v.source }}</td>
-      <td>{% if v.field_id == c.suggested_field_id %}<span class="badge PASS">suggested</span> <span class="muted">{{ c.suggestion_reason }}</span>{% endif %}</td>
-    </tr>{% endfor %}</table>
-    {% if c.status == 'OPEN' %}
-    <form method="post" action="/conflicts/{{ c.id }}/resolve" class="small">
-      Accept <select name="field_id">{% for v in c.values %}<option value="{{ v.field_id }}" {% if v.field_id == c.suggested_field_id %}selected{% endif %}>{{ v.value }} ({{ v.source }})</option>{% endfor %}</select>
-      reason <input type="text" name="reason" required size="40"> <button>Resolve</button>
-    </form>
-    {% else %}<div class="small muted">{{ c.resolution }}</div>{% endif %}
+<section class="card hero rise" style="--i:1">
+  <div style="min-width:0">
+    <h1>{{ sub.subject }}</h1>
+    <div class="meta"><span>From {{ sub.sender }}</span><span>Received {{ sub.received_at.strftime('%b %d, %Y %H:%M') }}</span>
+      <span>Rules <code>{{ sub.rules_version or '—' }}</code></span></div>
+    <div style="margin-top:10px"><span class="pill {{ sub.status }}" id="status-pill">{{ sub.status }}</span></div>
   </div>
-  {% else %}<p class="muted">None.</p>{% endfor %}
-</div>
+  <div class="decision-box">
+    <div class="label">Rules decision</div>
+    {% if sub.decision %}<div class="decision {{ sub.decision }}">{{ sub.decision }}</div>
+      {% if sub.team %}<div class="route">Route to <b>{{ sub.team }}</b> underwriting</div>{% endif %}
+    {% else %}<div class="decision tone-neutral" style="font-size:16px">{{ 'In progress' if running else 'Not decided' }}</div>{% endif %}
+  </div>
+  <div class="stats">
+    <a class="stat" href="#rules"><div class="n">{{ rules|length }}</div><div class="l">rules applied</div>
+      <div class="tally">{% for o in outcome_order %}{% set n = rules|selectattr('outcome', 'equalto', o)|list|length %}{% if n %}<span class="pill {{ o }}">{{ n }} {{ o|replace('_', ' ')|lower }}</span>{% endif %}{% endfor %}</div></a>
+    <a class="stat" href="#conflicts"><div class="n" data-count="{{ open_conflicts|length }}">{{ open_conflicts|length }}</div><div class="l">open conflicts of {{ conflicts|length }}</div></a>
+    <a class="stat" href="#fields"><div class="n" data-count="{{ low_confidence }}">{{ low_confidence }}</div><div class="l">values need review (of {{ n_fields }})</div></a>
+    <a class="stat" href="#docs"><div class="n" data-count="{{ n_pages }}">{{ n_pages }}</div><div class="l">pages from {{ docs|rejectattr('status', 'equalto', 'CONTAINER')|list|length }} files</div></a>
+  </div>
+  <div class="hero-actions">
+    <form method="post" action="/submissions/{{ sub.id }}/reprocess"><button {% if running %}disabled{% endif %} title="Re-read every page; review decisions are kept and re-applied">↻ Reprocess</button></form>
+    <form method="post" action="/submissions/{{ sub.id }}/rerun-rules"><button {% if running %}disabled{% endif %} title="Apply the current rules YAML to the current values">Re-run rules</button></form>
+    <span class="grow"></span>
+    <span class="small muted">Decisions come from deterministic rules; the AI is advisory.</span>
+  </div>
+</section>
 
-<div class="card" id="docs">
-  <h2>Documents &amp; pages (classified by content)</h2>
-  <table><tr><th>File</th><th>Page</th><th>Type</th><th>How</th><th>Status</th></tr>
-  {% for d in docs %}
-    {% if not d.pages %}<tr><td>{{ d.filename }}{% if d.parent_id %} <span class="muted small">(from zip)</span>{% endif %}</td><td></td><td></td><td></td>
-      <td><span class="badge {{ d.status }}">{{ d.status }}</span> <span class="small muted">{{ d.error }}{% if d.duplicate_of_id %}duplicate of doc {{ d.duplicate_of_id }}{% endif %}</span></td></tr>{% endif %}
-    {% for p in d.pages %}<tr>
-      <td>{% if loop.first %}{{ d.filename }}{% endif %}</td>
-      <td>{{ p.page_no }}{% if p.label %} <span class="small muted">{{ p.label }}</span>{% endif %}
-          {% if p.image_path %}<a class="small" href="/pages/{{ p.id }}/image" target="_blank">image</a>{% endif %}</td>
-      <td><b>{{ p.doc_type }}</b></td>
-      <td class="small">{{ p.classify_method }} {{ '%.2f'|format(p.classify_confidence) }} · {{ p.text_source or 'image only' }}<br><span class="muted">{{ p.classify_reason[:140] }}</span></td>
-      <td><span class="badge {{ p.status }}">{{ p.status }}</span> <span class="small muted">{{ p.error[:120] }}</span></td>
-    </tr>{% endfor %}
-  {% endfor %}</table>
-</div>
+<section class="card rise" style="--i:2" id="progress" data-running="{{ 1 if running else 0 }}" data-after="{{ logs[-1].id if logs else 0 }}">
+  <div class="card-head"><h2>Processing</h2><span class="count" id="step">{{ sub.step }}</span></div>
+  <ol class="stepper" id="stepper">
+    {% for prefix, label in stages %}
+    <li class="{{ 'done' if (loop.index0 < stage or (not running and sub.status == 'DONE')) else ('active' if (loop.index0 == stage and running) else '') }}">{{ label }}</li>
+    {% endfor %}
+  </ol>
+  <details {% if running %}open{% endif %}>
+    <summary class="small muted"><span class="chev">›</span> Progress log ({{ logs|length }} lines)</summary>
+    <div class="log" id="log">{% for l in logs %}<div class="{{ l.level }}"><span class="t">{{ l.at.strftime('%H:%M:%S') }}</span>{{ l.message }}</div>{% endfor %}</div>
+  </details>
+</section>
 
-<div class="card" id="fields">
-  <h2>Extracted information (by entity)</h2>
-  <p class="small muted">{% if replaced %}{{ replaced }} values from earlier runs are kept (REPLACED) for audit and hidden here. {% endif %}Each value shows its source excerpt and confidence. Values below 0.85 are flagged for review. Click a page to check the value against the original.</p>
-  {% for key, items in entities.items() %}
-  <details {% if loop.index < 4 %}open{% endif %}><summary><b>{{ key }}</b> <span class="muted small">({{ items|length }} values)</span></summary>
-    <table class="small">
-      <tr><th>id</th><th>field</th><th>value</th><th>evidence</th><th>source</th><th>conf</th><th>status</th><th>override</th></tr>
-      {% for f in items %}<tr id="F{{ f.id }}">
-        <td>F{{ f.id }}</td><td>{{ f.name }}</td><td><b>{{ f.value }}</b></td>
-        <td class="ev">{{ f.excerpt[:140] }}</td>
-        <td>{% if f.page_id and pages.get(f.page_id) %}{% set p = pages[f.page_id] %}{{ p.document.filename[:34] }} p{{ p.page_no }}
-            {% if p.image_path %}<a href="/pages/{{ p.id }}/image" target="_blank">view</a>{% endif %}<br><span class="muted">{{ f.method }}</span>{% else %}{{ f.method }}{% endif %}</td>
-        <td>{{ '%.2f'|format(f.confidence) }}</td>
-        <td><span class="badge {{ f.status }}">{{ f.status }}</span>
-            {% for k, v in f.validation.items() if v is sameas false %}<div class="small" style="color:var(--decline)">✗ {{ k }}</div>{% endfor %}</td>
-        <td>{% if f.status != 'SUPERSEDED' %}<details><summary class="small">edit</summary>
-          <form method="post" action="/fields/{{ f.id }}/override"><input type="text" name="value" value="{{ f.value }}" size="14">
-          <input type="text" name="reason" placeholder="reason (required)" required size="18"> <button>Save</button></form></details>{% endif %}</td>
+<nav class="tabs" aria-label="Sections">
+  <a href="#ai">AI findings</a>
+  <a href="#rules">Rules<span class="n">{{ rules|length }}</span></a>
+  <a href="#conflicts">Conflicts<span class="n">{{ open_conflicts|length }} open</span></a>
+  <a href="#docs">Documents<span class="n">{{ n_pages }}</span></a>
+  <a href="#fields">Extracted<span class="n">{{ n_fields }}</span></a>
+  <a href="#audit">Audit<span class="n">{{ audits|length }}</span></a>
+</nav>
+
+<section class="card anchor" id="ai">
+  <div class="card-head"><h2>AI findings</h2><span class="pill tone-info plain">Advisory</span><span class="grow"></span>
+    <span class="small muted">Every item cites the values it relies on; citations are checked in code.</span></div>
+  {% if not sub.summary %}<p class="muted">{{ 'The analyst runs after the rules.' if running else 'No analysis yet.' }}</p>
+  {% elif sub.summary.error %}<p><span class="pill MODEL_ERROR">MODEL_ERROR</span> {{ sub.summary.error }}</p>
+  {% else %}
+    {% if sub.summary.out_of_date %}<div class="banner"><span class="pill tone-warn">Out of date</span>
+      <span class="grow">Written before a review change: {{ sub.summary.out_of_date }}.</span>
+      <form method="post" action="/submissions/{{ sub.id }}/rerun-analysis"><button class="sm primary" {% if running %}disabled{% endif %}>Rerun analysis</button></form></div>{% endif %}
+    <p class="ai-summary">{{ sub.summary.summary }}</p>
+    <div class="two">
+      <div><h3>Concerns · {{ sub.summary.concerns|length }}</h3>
+        {% for c in sub.summary.concerns %}<div class="item {{ c.severity }}">
+          <div class="t"><span>{{ c.title }}</span><span class="pill {{ c.severity }}">{{ c.severity }}</span></div>
+          <p>{{ c.detail }}</p>
+          <div class="chips">{% for e in c.evidence %}{{ cite(e) }}{% endfor %}
+            {% if c.unsupported %}<span class="pill LOW_CONFIDENCE">unsupported</span>{% endif %}
+            <span class="small muted" style="margin-left:auto">confidence {{ '%.2f'|format(c.confidence) }}</span></div>
+        </div>{% endfor %}
+      </div>
+      <div><h3>Recommended next actions · {{ sub.summary.recommendations|length }}</h3>
+        {% for r in sub.summary.recommendations %}<div class="item tone-info">
+          <div class="audience">{{ r.audience }}</div>
+          <div class="t"><span>{{ r.action }}</span></div>
+          <p>{{ r.reason }}</p>
+          <div class="chips">{% for e in r.evidence %}{{ cite(e) }}{% endfor %}
+            <span class="small muted" style="margin-left:auto">confidence {{ '%.2f'|format(r.confidence) }}</span></div>
+        </div>{% endfor %}
+      </div>
+    </div>
+  {% endif %}
+</section>
+
+<section class="card anchor" id="rules">
+  <div class="card-head"><h2>Rule outcomes</h2><span class="count">{{ rules|length }}</span><span class="grow"></span>
+    <span class="small muted">Failures first. Click a value to see its evidence.</span></div>
+  {% macro rule_row(r) %}<tr id="R{{ r.id }}">
+    <td class="nowrap"><b>{{ r.rule_id }}</b></td>
+    <td><span class="pill {{ r.outcome }}">{{ r.outcome|replace('_', ' ') }}</span></td>
+    <td><div><b>{{ r.title }}</b></div><div class="rule-msg">{{ r.message }}</div><div class="clause">“{{ r.source_clause }}”</div></td>
+    <td class="hide-sm"><div class="chips">{% for fid in r.input_field_ids %}{{ cite('F' ~ fid) }}{% endfor %}</div></td>
+  </tr>{% endmacro %}
+  {% if not rules %}<p class="muted">Not evaluated yet.</p>{% else %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Rule</th><th>Outcome</th><th>Result</th><th class="hide-sm">Based on</th></tr></thead>
+    <tbody>{% for o in outcome_order if o != 'PASS' %}{% for r in rules if r.outcome == o %}{{ rule_row(r) }}{% endfor %}{% endfor %}</tbody>
+  </table></div>
+  {% set passed = rules|selectattr('outcome', 'equalto', 'PASS')|list %}
+  {% if passed %}<details class="passed"><summary><span class="chev">›</span> {{ passed|length }} rules passed</summary>
+    <div class="table-wrap"><table><tbody>{% for r in passed %}{{ rule_row(r) }}{% endfor %}</tbody></table></div></details>{% endif %}
+  {% endif %}
+</section>
+
+<section class="card anchor" id="conflicts">
+  <div class="card-head"><h2>Conflicts &amp; duplicates</h2><span class="count">{{ open_conflicts|length }} open · {{ conflicts|length }} total</span>
+    <span class="grow"></span><span class="small muted">Never auto-picked: a suggestion is shown, a person decides.</span></div>
+  {% for c in conflicts|sort(attribute='status', reverse=False) %}
+  <div class="conflict {{ c.status }}" id="C{{ c.id }}">
+    <h4><span class="pill {{ c.status }}">{{ c.status }}</span><span class="pill tone-neutral plain">{{ c.kind|replace('_', ' ')|lower }}</span>
+      {{ c.field_name|replace('_', ' ') }} <code>{{ c.entity_key }}</code></h4>
+    {% if c.description %}<div class="small muted" style="margin-top:6px">{{ c.description }}</div>{% endif %}
+    {% if c.status == 'OPEN' %}
+    <form method="post" action="/conflicts/{{ c.id }}/resolve">
+      <div class="options">{% for v in c.values %}
+        <label class="opt"><input type="radio" name="field_id" value="{{ v.field_id }}" {% if v.field_id == c.suggested_field_id or (not c.suggested_field_id and loop.first) %}checked{% endif %}>
+          {% if v.field_id == c.suggested_field_id %}<span class="sugg" title="{{ c.suggestion_reason }}">Suggested</span>{% endif %}
+          <div class="v">{{ v.value }}</div><div class="s">{{ v.source }}</div></label>{% endfor %}</div>
+      {% if c.suggestion_reason %}<div class="small muted" style="margin:-2px 0 10px">Why suggested: {{ c.suggestion_reason }}</div>{% endif %}
+      <div class="resolve"><input type="text" name="reason" required placeholder="Reason for your decision (required, goes to the audit log)">
+        <button class="primary" {% if running %}disabled{% endif %}>Resolve</button></div>
+    </form>
+    {% else %}
+      <div class="options">{% for v in c.values %}<div class="opt" style="cursor:default"><div class="v">{{ v.value }}</div><div class="s">{{ v.source }}</div></div>{% endfor %}</div>
+      <div class="small"><b>Resolution:</b> <span class="muted">{{ c.resolution }}</span></div>
+    {% endif %}
+  </div>
+  {% else %}<p class="muted">No conflicts found.</p>{% endfor %}
+</section>
+
+<section class="card anchor" id="docs">
+  <div class="card-head"><h2>Documents &amp; pages</h2><span class="count">{{ n_pages }} pages</span><span class="grow"></span>
+    <span class="small muted">Classified by content, not file name.</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>File</th><th>Page</th><th>Type</th><th class="hide-sm">How</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for d in docs %}
+      {% if not d.pages %}<tr><td><b>{{ d.filename }}</b>{% if d.parent_id %} <span class="small muted">from zip</span>{% endif %}</td><td></td><td></td><td class="hide-sm"></td>
+        <td><span class="pill {{ d.status }}">{{ d.status }}</span> <span class="small muted">{{ d.error }}{% if d.duplicate_of_id %} duplicate of document {{ d.duplicate_of_id }}{% endif %}</span></td><td></td></tr>{% endif %}
+      {% for p in d.pages %}<tr>
+        <td>{% if loop.first %}<b>{{ d.filename }}</b>{% endif %}</td>
+        <td class="nowrap">{{ p.page_no }}{% if p.label %} <span class="small muted">{{ p.label }}</span>{% endif %}</td>
+        <td><span class="pill tone-neutral plain">{{ p.doc_type|replace('_', ' ')|lower }}</span></td>
+        <td class="small hide-sm"><span class="mono">{{ p.classify_method }} · {{ '%.2f'|format(p.classify_confidence) }}</span> · {{ p.text_source|replace('_', ' ') or 'image only' }}
+          <div class="muted">{{ p.classify_reason[:150] }}</div></td>
+        <td><span class="pill {{ p.status }}">{{ p.status }}</span>{% if p.error %}<div class="small muted">{{ p.error[:120] }}</div>{% endif %}</td>
+        <td>{% if p.image_path %}<button class="sm" type="button" data-page data-image="/pages/{{ p.id }}/image"
+              data-kicker="{{ p.doc_type }}" data-title="{{ d.filename }} · page {{ p.page_no }}" data-note="{{ p.classify_reason }}">View</button>{% endif %}</td>
       </tr>{% endfor %}
-    </table>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card anchor" id="fields">
+  <div class="card-head"><h2>Extracted information</h2><span class="count">{{ n_fields }} values · {{ entities|length }} entities</span><span class="grow"></span>
+    <div class="tools">
+      <input type="search" id="q" placeholder="Filter: field, value, entity…" aria-label="Filter extracted values">
+      <label class="toggle"><input type="checkbox" id="lowonly"> Needs review only ({{ low_confidence }})</label>
+    </div></div>
+  <p class="small muted" style="margin-top:-6px">Each value keeps its source excerpt and a confidence. Below 0.85 it is flagged for review.
+    {% if replaced %}{{ replaced }} values from earlier runs are kept for audit and hidden here.{% endif %}</p>
+  {% for key, items in entities.items() %}
+  {% set lows = items|selectattr('status', 'equalto', 'LOW_CONFIDENCE')|list|length %}
+  <details class="entity" {% if loop.index <= 3 %}open{% endif %}>
+    <summary><span class="chev">›</span><code>{{ key }}</code><span class="small muted">{{ items|length }} values</span>
+      {% if lows %}<span class="pill LOW_CONFIDENCE">{{ lows }} to review</span>{% endif %}</summary>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Field</th><th>Value</th><th class="hide-sm">Evidence</th><th>Confidence</th><th>Status</th><th></th></tr></thead>
+      <tbody>{% for f in items %}
+      <tr id="F{{ f.id }}" class="frow" data-low="{{ 1 if f.status == 'LOW_CONFIDENCE' else 0 }}">
+        <td class="nowrap">{{ f.name }}<div class="small muted mono">F{{ f.id }}</div></td>
+        <td class="val">{{ f.value }}</td>
+        <td class="hide-sm"><div class="ex">{{ f.excerpt[:80] }}</div><div class="small muted">{{ f.method }}</div></td>
+        <td>{{ meter(f.confidence) }}</td>
+        <td><span class="pill {{ f.status }}">{{ f.status|replace('_', ' ') }}</span>
+          {% for k, v in (f.validation or {}).items() if v is sameas false %}<div class="fail">✗ {{ k|replace('_', ' ') }}</div>{% endfor %}</td>
+        <td class="nowrap"><button class="sm" type="button" {{ ev_attrs(f) }}>Evidence{{ ' · edit' if f.status != 'SUPERSEDED' }}</button>
+</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
   </details>
   {% endfor %}
-</div>
+  <p class="muted hidden" id="nomatch">No values match the filter.</p>
+</section>
 
-<div class="card" id="audit">
-  <h2>Audit log</h2>
-  <table class="small"><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Change</th><th>Reason</th></tr>
-  {% for a in audits %}<tr><td>{{ a.at.strftime('%m-%d %H:%M:%S') }}</td><td>{{ a.actor }}</td><td>{{ a.action }}</td><td>{{ a.target }}</td>
-    <td class="ev">{{ a.before }} → {{ a.after }}</td><td>{{ a.reason }}</td></tr>{% endfor %}</table>
-</div>
+<section class="card anchor" id="audit">
+  <div class="card-head"><h2>Audit log</h2><span class="count">{{ audits|length }} events</span></div>
+  {% if audits %}<ol class="timeline">{% for a in audits %}<li>
+    <div><span class="what">{{ a.action }}</span> <span class="small muted">· {{ a.actor }} · {{ a.at.strftime('%b %d %H:%M:%S') }}</span></div>
+    <div class="small">{{ a.target }}{% if a.reason %} — <i>{{ a.reason }}</i>{% endif %}</div>
+    {% if a.before or a.after %}<div class="diff">{{ a.before }} → {{ a.after }}</div>{% endif %}
+  </li>{% endfor %}</ol>{% else %}<p class="muted">No events yet.</p>{% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+  // live progress: poll status, advance the stepper, stream the log; reload once when the job ends
+  const prog = $("#progress");
+  if (prog.dataset.running === "1") {
+    let after = +prog.dataset.after;
+    const steps = $$("#stepper li"), log = $("#log");
+    const tick = async () => {
+      try {
+        const s = await (await fetch(`/submissions/{{ sub.id }}/status?after=${after}`)).json();
+        s.logs.forEach(l => {
+          const div = document.createElement("div"); div.className = l.level;
+          div.innerHTML = `<span class="t">${esc(l.at)}</span>${esc(l.message)}`; log.appendChild(div); after = l.id;
+        });
+        if (s.logs.length) log.scrollTop = log.scrollHeight;
+        $("#step").textContent = s.step;
+        const pill = $("#status-pill"); pill.className = "pill " + s.status; pill.textContent = s.status;
+        steps.forEach((li, i) => { li.className = (i < s.stage || !s.running) ? "done" : (i === s.stage ? "active" : ""); });
+        if (!s.running) { toast(`Processing finished: ${s.decision || s.status}`); setTimeout(() => location.reload(), 1100); return; }
+      } catch (e) {}
+      setTimeout(tick, 1500);
+    };
+    setTimeout(tick, 800);
+  }
+
+  // section tabs: highlight the section in view
+  const links = $$(".tabs a");
+  const spy = new IntersectionObserver(entries => entries.forEach(en => {
+    if (en.isIntersecting) links.forEach(a => a.classList.toggle("on", a.getAttribute("href") === "#" + en.target.id));
+  }), { rootMargin: "-130px 0px -60% 0px" });
+  $$("section.anchor").forEach(s => spy.observe(s));
+
+  // filter extracted values
+  const q = $("#q"), low = $("#lowonly");
+  const filter = () => {
+    const term = q.value.trim().toLowerCase(), lowOnly = low.checked; let any = false;
+    $$("#fields details.entity").forEach(d => {
+      const key = d.querySelector("summary code").textContent.toLowerCase(); let shown = 0;
+      d.querySelectorAll("tr.frow").forEach(tr => {
+        const hit = (!term || key.includes(term) || tr.textContent.toLowerCase().includes(term)) && (!lowOnly || tr.dataset.low === "1");
+        tr.classList.toggle("hidden", !hit); shown += hit;
+      });
+      d.classList.toggle("hidden", !shown); if ((term || lowOnly) && shown) d.open = true; any = any || shown > 0;
+    });
+    $("#nomatch").classList.toggle("hidden", any);
+  };
+  let h; q.addEventListener("input", () => { clearTimeout(h); h = setTimeout(filter, 120); });
+  low.addEventListener("change", filter);
+
+  // arriving on #F123 (or after a save): open its group and flash the row
+  const hit = location.hash && document.getElementById(location.hash.slice(1));
+  if (hit && hit.tagName === "TR") { const d = hit.closest("details"); if (d) d.open = true; hit.classList.add("target");
+    setTimeout(() => hit.scrollIntoView({ block: "center" }), 60); }
+})();
+</script>
 {% endblock %}
