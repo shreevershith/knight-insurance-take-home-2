@@ -6,7 +6,7 @@ IFTA: period end. Child items (violations, claims, IFTA rows) take their parent'
 """
 from collections import defaultdict
 
-from app.extract.normalize import looks_like_vin, name_tokens, names_compatible, norm_id, normalize
+from app.extract.normalize import coverage_line, looks_like_vin, name_tokens, names_compatible, norm_id, normalize
 
 
 def _items(facts):
@@ -38,7 +38,9 @@ def assign_keys(facts: list[dict], page_ctx: dict, known_drivers: list[dict]) ->
             keys[(group, index)] = (f"vehicle:{norm_id(vin)}" if vin and looks_like_vin(vin)
                                     else f"vehicle:unit-{d.get('unit_number') or index + 1}@{page_ctx['doc_id']}")
         elif etype == "loss_run":
-            keys[(group, index)] = f"loss_run:{(d.get('line') or '?').upper()}:{norm_id(d.get('policy_number')) or page_ctx['doc_id']}"
+            # the line as a code (AL/MTC/APD), not as printed: 'COMMERCIAL AUTO LIABILITY' is AL (held-out, HO1)
+            line = coverage_line(d.get("line")) or (d.get("line") or "?").upper()
+            keys[(group, index)] = f"loss_run:{line}:{norm_id(d.get('policy_number')) or page_ctx['doc_id']}"
             page_ctx["loss_run"] = keys[(group, index)]
         elif etype == "ifta":
             period = normalize("period_end", d.get("period_end")) or page_ctx.get("ifta_period")

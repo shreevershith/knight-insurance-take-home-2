@@ -12,7 +12,7 @@ from app.classify import classify_page
 from app.db import Conflict, Document, Field, JobLog, Page, RuleResult, SessionLocal, Submission, audit
 from app.extract import evidence
 from app.extract.llm_extract import extract_page
-from app.extract.normalize import normalize, parse_number, validate
+from app.extract.normalize import norm_id, normalize, parse_number, validate
 from app.extract.spec import SPEC
 from app.extract.table_transcript import parse_ifta_page
 from app.extract.xlsx_extract import extract_sheet
@@ -102,6 +102,7 @@ def run(submission_id: int, claimed: bool = False) -> None:
             progress(db, sub, f"Re-applied human decisions over {reapplied} re-extracted values")
         progress(db, sub, "Cross-checking values across documents")
         _cross_document_confirmation(db, sub.id)
+        _loss_runs_confirmed_by_listing(db, sub.id)
         failed = _ifta_reconciliation(db, sub.id)
         if failed and config.route("transcribe")[0] != config.ESCALATION_MODEL:
             _escalate_ifta(db, sub, failed, known_drivers)
@@ -331,6 +332,27 @@ def _cross_document_confirmation(db, submission_id):
                     f.validation = {**f.validation, "confirmed_by_other_document": True}
                     f.confidence = max(f.confidence, 0.9)
                     f.status = "OK" if f.confidence >= evidence.REVIEW_THRESHOLD else f.status
+
+
+def _loss_runs_confirmed_by_listing(db, submission_id):
+    """A loss run whose policy number, start and end match a prior term listed on the application or
+    quote is confirmed by that listing: two independent documents agree. Matters for photographed or
+    scanned loss runs, whose values start below the review threshold (held-out finding, HO1)."""
+    fields = conflicts.active_fields(db, submission_id)
+    listed = defaultdict(dict)  # policy number -> {field: normalized value}
+    for f in fields:
+        if f.entity_key.startswith("prior_policy:") and f.method != "human":
+            listed[f.entity_key][f.name] = normalize(f.name, f.value)
+    by_policy = {terms.get("policy_number"): terms for terms in listed.values() if terms.get("policy_number")}
+    for f in fields:
+        if not f.entity_key.startswith("loss_run:") or f.method == "human" or f.confidence >= evidence.REVIEW_THRESHOLD:
+            continue
+        policy = norm_id(f.entity_key.rsplit(":", 1)[-1])
+        terms = by_policy.get(policy)
+        if terms and f.name in ("policy_number", "term_start", "term_end") and terms.get(f.name) == normalize(f.name, f.value):
+            f.validation = {**f.validation, "confirmed_by_prior_insurance_listing": True}
+            f.confidence = max(f.confidence, 0.9)
+            f.status = "OK"
 
 
 def _ifta_reconciliation(db, submission_id):

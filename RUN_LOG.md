@@ -23,6 +23,9 @@ Raw outputs of each experiment are in `eval/experiments/`.
 | B3 | 11/01 04:57 / 04:58 | Block 3 commit | Defaults, through the **web app**: upload → double-start refused (409) → eval → field override → "OUT OF DATE" → rerun analysis | 1 + 1 (analyst) | ~90 s + ~60 s | $0.43 | **63/63** | Block 3 behaviour verified end to end; new rows store relative paths |
 | PG1 | 11/01 07:37 | this commit | Defaults, on **PostgreSQL 18** (fresh database, D-33) | 1 new (analyst) + 39 cached | ~90 s | $0.21 | **87/87** | Same results as SQLite; web routes, overrides and job claim checked on Postgres |
 | **HO1** | 11/01 08:01 | `3d9e2df` + held-out files | **Held-out submission** (Desert Ridge Freight, written from scratch after the build; D-19, D-13). Defaults, unchanged code | 26 (0 cached, 0 escalated) | ~2.5 min | **$0.18** | **49/72** | First real measurement on unseen input. Decision REFER instead of DECLINE: the DUI never reached DRV-07 (see below) |
+| HO2 | 11/01 08:09 | fixes 1–4 | Held-out again after the four fixes (application pages re-extracted; the rest from cache) | 3 new + 23 cached | ~70 s | $0.16 | 69/72 | Remaining: DRV-07 and SUB-04 cited values they don't rely on (below) |
+| S2 | 11/01 08:10 | fixes 1–4 | Sample again (regression check after the fixes) | 2 new + 38 cached | ~70 s | $0.24 | **87/87** | No regression |
+| HO3 | 11/01 08:14 | this commit | Rules re-run on HO2 and S2 after fix 5 (no model calls) | 0 | – | $0 | **72/72** held-out, **87/87** sample | Held-out decision now DECLINE. **72/72 is a regression result, not a measurement** (the fixes were found with this file) |
 
 ## Run 1: first real run (baseline)
 
@@ -268,3 +271,25 @@ decline routed to a person, not a bad account bound.
 
 **Honesty note:** once these gaps are fixed using this file, it is no longer a clean held-out set. 49/72 stays the
 measurement; a re-run after fixes is a regression check on it, and a new measurement needs a second held-out submission.
+
+### Fixes from the held-out set (HO2, HO3)
+
+Each fix targets the general cause, not this file's exact wording:
+1. **Spreadsheet fallback.** When a sheet has a header row but no row can be identified as a driver or a unit, the
+   parser returns nothing, so the model extractor reads the sheet. Before, it filed the rows as notes silently.
+   Also added common header variants: "Driver Name", "CDL #", "DL #", "Body Type", "Type", "Yr", "Stated Amount".
+   **Caveat:** the vocabulary additions were informed by this file.
+2. **Line of business as a code.** "COMMERCIAL AUTO LIABILITY" and "AUTO LIABILITY (AL)" map to AL, cargo to MTC,
+   physical damage to APD. Unrecognized text (e.g. General Liability) maps to nothing; it is never guessed.
+3. **Prior insurance on applications.** The application catalogue now has the prior-insurance table the quote form
+   already had.
+4. **A listing confirms a loss run.** A loss-run policy number, start or end that matches a term listed on the
+   application or quote is confirmed: two independent documents agree. This lets a photographed loss run count once
+   the typed listing backs it.
+5. **A rule cites only what it relies on.** This is the principle first applied to driver points. DRV-07 had cited
+   the violation's event type ("VIOL"), a label the model inferred from a section heading. It wasn't printed on the
+   row, so it was low-confidence, and the guard downgraded a well-evidenced DECLINE. SUB-04 had cited the photo's
+   carrier name. Both now cite only the description and date, and the term dates.
+
+**Result:** held-out 72/72 with decision DECLINE (the DUI), and the sample still 87/87. **The held-out number that
+counts is 49/72 (HO1).** A new measurement needs a second held-out submission, not built.

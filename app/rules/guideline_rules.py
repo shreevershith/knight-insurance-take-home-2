@@ -68,8 +68,10 @@ def _history(v, key) -> list[tuple[str, date | None, float | None, list[int], li
         kind, desc = v.value(ek, "event_type"), v.value(ek, "description")
         when, conv, pts = v.value(ek, "violation_date"), v.value(ek, "conviction_date"), v.value(ek, "points")
         text = " ".join(x for x in (kind.raw, desc.raw) if x)
+        # cite what a finding rests on: the description and date (the event type is only a label, often
+        # inferred from a section heading rather than printed on the row; held-out finding, HO2)
         out.append((text, parse_date(when.raw) or parse_date(conv.raw), parse_number(pts.raw),
-                    kind.field_ids + desc.field_ids + when.field_ids + pts.field_ids, when.field_ids + pts.field_ids))
+                    desc.field_ids + when.field_ids + pts.field_ids, when.field_ids + pts.field_ids))
     for ek in v.entities(f"license_event:{key}:"):
         event, when = v.value(ek, "event"), v.value(ek, "date")
         out.append((event.raw or "", parse_date(when.raw), None, event.field_ids + when.field_ids, when.field_ids))
@@ -110,7 +112,7 @@ def _terms(v, prefix: str) -> list[tuple[date, date, str, list[int]]]:
         s, e = parse_date(start.raw), parse_date(end.raw)
         if s and e:
             label = f"{carrier.raw + ' ' if carrier.raw else ''}{s:%m/%d/%Y}–{e:%m/%d/%Y}"
-            out.append((s, e, label, start.field_ids + end.field_ids + carrier.field_ids))
+            out.append((s, e, label, start.field_ids + end.field_ids))  # the carrier is only a label
     return sorted(out)
 
 
@@ -513,8 +515,12 @@ def low_premium_needs_twenty_units(v, cfg) -> Result:
 # ---------------------------------------------------------------- prior insurance
 
 def _coverage_terms(v):
-    """Evidence of coverage: terms listed on the application/quote plus terms shown by loss runs."""
-    return sorted(_terms(v, "prior_policy:") + _terms(v, "loss_run:"))
+    """Evidence of coverage: terms listed on the application/quote, plus loss-run terms only where they
+    add a term the listing doesn't have. A rule cites only what it relies on, so a duplicate read off a
+    photo can't hold back a result the typed listing already supports."""
+    listed = _terms(v, "prior_policy:")
+    extra = [t for t in _terms(v, "loss_run:") if not any(abs((t[0] - lt[0]).days) <= 3 for lt in listed)]
+    return sorted(listed + extra)
 
 
 @rule("PRI-01")

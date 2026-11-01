@@ -14,17 +14,18 @@ from app.intake import cell_text
 
 DRIVER_HEADERS = {
     r"^first name": "first_name", r"^middle": "middle_initial", r"^last name": "last_name",
+    r"^(driver )?(full )?name$": "full_name",
     r"date of birth|^dob$": "dob", r"hire date|d\.?o\.?h|date of hire": "hire_date",
-    r"cdl number|license ?#|license number|driver license": "license_number",
-    r"cdl state|state licensed|license state": "license_state",
-    r"years of experience|exp\.? in yrs|experience": "years_experience",
+    r"cdl (number|no\.?|#)|cdl ?#|license ?(#|no\.?)|license number|driver license|^dl ?(#|no\.?|number)$": "license_number",
+    r"cdl state|state licensed|license state|^dl state$": "license_state",
+    r"years of experience|years? exp|exp\.? in yrs|experience": "years_experience",
     r"driver type": "driver_type", r"^driver ?#$": "driver_number",
 }
 VEHICLE_HEADERS = {
-    r"^year$": "year", r"^make$": "make", r"^model$": "model", r"^vin": "vin",
-    r"vehicle type": "vehicle_type", r"gross vehicle weight|^gvw": "gvw",
-    r"original new veh|cost new": "cost_new", r"stated value": "stated_value",
-    r"registered state": "registered_state", r"garaged zip": "garaging_zip", r"^vehicle ?#$": "unit_number",
+    r"^(model )?(year|yr\.?)$": "year", r"^make$": "make", r"^model$": "model", r"^vin": "vin",
+    r"vehicle type|body type|body style|unit type|^type$": "vehicle_type", r"gross vehicle weight|^gvw": "gvw",
+    r"original new veh|cost new": "cost_new", r"stated (value|amount)|insured value|agreed value": "stated_value",
+    r"registered state": "registered_state", r"garaged zip": "garaging_zip", r"^(vehicle|unit) ?#$": "unit_number",
 }
 _PLACEHOLDER = re.compile(r"^(list|attached|driver|vin & vehicle|see attached|n/?a)$", re.I)
 
@@ -80,7 +81,7 @@ def extract_sheet(path: str | Path, sheet_index: int) -> list[dict]:
         used = set()
         drv = {name: by_col[col] for col, name in driver_cols.items() if col in by_col}
         real_driver = any(n in drv and not _PLACEHOLDER.match(str(drv[n].value).strip())
-                          for n in ("last_name", "license_number"))
+                          for n in ("last_name", "full_name", "license_number"))
         if real_driver:
             for name, cell in drv.items():
                 if name != "driver_number" and (fact := _fact("drivers", "driver", n_drivers, name, cell, cached(cell))):
@@ -101,6 +102,11 @@ def extract_sheet(path: str | Path, sheet_index: int) -> list[dict]:
             text = " ".join(cell_text(c, cached(c)) for c in leftovers)
             if not all(_PLACEHOLDER.match(str(c.value).strip()) for c in leftovers):
                 notes.append((text, leftovers[0]))
+    if not n_drivers and not n_vehicles:
+        # A header row was found but no row could be identified as a driver or a unit (no name, license
+        # number, year or VIN column recognized). Don't file the rows as notes: return nothing so the
+        # caller reads the sheet with the model extractor instead (held-out finding, HO1).
+        return []
     for i, (text, cell) in enumerate(notes):
         facts.append({"group": "notes", "entity_type": "sheet_note", "index": i, "field": "note",
                       "value": text, "excerpt": text})

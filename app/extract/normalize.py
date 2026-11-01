@@ -142,6 +142,19 @@ def names_compatible(a, b) -> bool:
     return True
 
 
+def coverage_line(value) -> str | None:
+    """Line of business as printed -> AL / MTC / APD ('COMMERCIAL AUTO LIABILITY', 'AUTO LIABILITY (AL)',
+    'Motor Truck Cargo', 'Physical Damage'). Unrecognized text -> None, never a guess."""
+    text = str(value or "").upper()
+    if re.search(r"\bMTC\b|CARGO", text):
+        return "MTC"
+    if re.search(r"\bAPD\b|PHYSICAL DAMAGE|\bPHD\b|\bPD\b", text):
+        return "APD"
+    if re.search(r"\bAL\b|AUTO\s*LIAB|^\s*LIAB", text):  # 'General Liability' is not auto liability
+        return "AL"
+    return None
+
+
 def norm_id(value) -> str:
     """License numbers, VINs, DOT/MC: uppercase alphanumerics only."""
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())

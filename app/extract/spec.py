@@ -199,6 +199,8 @@ SPEC: dict[str, dict[str, tuple[str, bool, dict]]] = {
         "coverage": ("coverage", False, COVERAGE),
         "operations": ("operations", False, OPERATIONS),
         "commodities": ("commodity", True, COMMODITY),
+        # applications list prior insurance too, not only quote forms (held-out finding, HO1)
+        "prior_policies": ("prior_policy", True, PRIOR_POLICY),
     },
     "QUOTE_FORM": {
         "applicant": ("applicant", False, APPLICANT),

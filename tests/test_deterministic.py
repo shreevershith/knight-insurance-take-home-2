@@ -126,3 +126,22 @@ def test_logs_mask_ssn_fein_license_numbers_and_dates():
     masked = mask_pii(text)
     for secret in ("123-45-6789", "12-3456789", "C4471925", "W38215604720918", "09/14/1979", "03/02/2003"):
         assert secret not in masked
+
+
+def test_coverage_line_codes():
+    from app.extract.normalize import coverage_line
+    assert coverage_line("COMMERCIAL AUTO LIABILITY") == "AL" and coverage_line("COVERAGE AUTO LIABLITY") == "AL"
+    assert coverage_line("AUTO LIABILITY (AL)") == "AL" and coverage_line("Motor Truck Cargo") == "MTC"
+    assert coverage_line("General Liability") is None   # not auto liability: never guessed
+
+
+def test_roster_with_unrecognized_key_columns_falls_back_to_the_model(tmp_path):
+    import openpyxl
+    from app.extract.xlsx_extract import extract_sheet
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Operator", "DOB", "Hire Date", "CDL State"])   # no name / license / year / VIN column recognized
+    ws.append(["HECTOR RAMOS", "04/11/1984", "03/01/2021", "AZ"])
+    path = tmp_path / "roster.xlsx"
+    wb.save(path)
+    assert extract_sheet(path, 0) == []   # empty -> the pipeline reads the sheet with the model instead
