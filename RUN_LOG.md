@@ -382,3 +382,21 @@ container.
 - 71 tests pass, locally and inside the container.
 - The speed-up itself is not measured yet: these runs were mostly cache hits, so their time says nothing about model
   wait. A run on an empty cache (about $0.62) would measure it.
+
+### Parallel page calls, measured (PAR1, 11/01)
+
+The sample on an **empty cache** (`LLM_CACHE_DIR=llm_cache_par1`), per-task models, `LLM_CONCURRENCY=6`, compared with
+M1 (the same models and sample, one call at a time):
+
+| | M1 (sequential) | PAR1 (6 at a time) |
+|---|---|---|
+| Model calls | 41 | 40 (all fresh) |
+| Time spent in model calls | 290 s | 267 s |
+| **Wall time** | **290 s** | **97 s (-67%)** |
+| Cost | $0.622 | $0.552 |
+| Eval | 87/87 | 87/87 |
+
+By tier in PAR1: transcription 13 calls (73 s of model time, $0.229), extraction 24 (149 s, $0.110; 4 loss-run pages
+escalated to Opus for a missing line of business, as in earlier runs), classification 2, analyst 1 (43 s, $0.213). The
+total model work is about the same; it now overlaps. The analyst is now 43 of the 97 seconds: it reads every value, so
+it can't start earlier. The cost difference is run-to-run variation in output length, not a saving from parallelism.

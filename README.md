@@ -93,7 +93,7 @@ email ─► intake (zip, dedupe) ─► pages ─► classify (rules first, mod
 - **Guards that hold across all rules:** a value that couldn't be read is never reported as missing; a rule never
   passes on a low-confidence value; a decline needs cited evidence; a rule cites only the values it relies on.
 - **Built vs designed.** Built: a single process with background jobs, an atomic one-job-per-submission claim and
-  restart recovery, on PostgreSQL. Built: Docker (app + worker + Postgres); a database job queue with workers, leases and retries; page calls run in parallel within a job (`LLM_CONCURRENCY`, D-36). Designed only: SQS or a managed queue, autoscaling, real
+  restart recovery, on PostgreSQL. Built: Docker (app + worker + Postgres); a database job queue with workers, leases and retries; page calls run in parallel within a job (`LLM_CONCURRENCY`, D-36): the sample on an empty cache took 97 s instead of 290 s. Designed only: SQS or a managed queue, autoscaling, real
   mailbox intake, SSO/RBAC, FMCSA/SAFER lookups. See PLAN.md §5a and D-25.
 
 ## Where things are
