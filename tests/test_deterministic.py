@@ -118,3 +118,11 @@ def test_claims_checked_against_schedules():
     assert ("vehicle:1XPBD49X5MD735204", "scheduled") in found
     assert ("driver:BRANDT-KEVIN", "scheduled") in found
     assert not any(k[0].startswith("driver:") and "VOLKOV" in k[0] for k in found)      # scheduled driver: no flag
+
+
+def test_logs_mask_ssn_fein_license_numbers_and_dates():
+    from app.log import mask_pii
+    text = "SSN 123-45-6789 FEIN 12-3456789 DL C4471925 NJ W38215604720918 dob 09/14/1979 and 03/02/2003"
+    masked = mask_pii(text)
+    for secret in ("123-45-6789", "12-3456789", "C4471925", "W38215604720918", "09/14/1979", "03/02/2003"):
+        assert secret not in masked

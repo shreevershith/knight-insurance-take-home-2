@@ -39,8 +39,8 @@ def sub():
         dot_number="9481307", mc_number="1987405", business_name="COBALT MESA TRANSPORT INC")
     add("APPLICATION", "app", "operations", "operations", intermodal="no", cross_border="no", farthest_state="TX")
     add("QUOTE_FORM", "quote", "operations", "operations", hazmat="no")
-    for i, c in enumerate(["FRESH PRODUCE / FROZEN FOOD", "BEER / WINE", "PAPER & PACKAGING"]):
-        add("QUOTE_FORM", "quote", f"commodity:q:{i}", "commodity", commodity=c)
+    for i, (c, pct) in enumerate([("FRESH PRODUCE / FROZEN FOOD", "50"), ("BEER / WINE", "30"), ("PAPER & PACKAGING", "20")]):
+        add("QUOTE_FORM", "quote", f"commodity:q:{i}", "commodity", commodity=c, percent=pct)
     # drivers: schedule + current MVRs (+ the photographed Osei CDL)
     roster = {"C4471925": ("DEVRAJ", "SANDHU", "09/14/1979"), "O7314062": ("NATHANIEL K", "OSEI", "02/17/1987"),
               "V61930287415503": ("ALEKSANDR P", "VOLKOV", "06/02/1983"),
@@ -130,8 +130,20 @@ def test_prohibited_exposures_decidable_vs_not(sub):
     engine.evaluate(db, s)
     r = _results(db, s)
     assert r["PRO-01"].outcome == "PASS" and r["PRO-07"].outcome == "PASS"
-    assert r["PRO-02"].outcome == "PASS" and r["PRO-08"].outcome == "PASS"
+    assert r["PRO-02"].outcome == "PASS" and r["PRO-08"].outcome == "PASS"   # list complete: 50+30+20 = 100%
+    assert "100%" in r["PRO-02"].message and len(r["PRO-02"].input_field_ids) == 6  # cites names and shares
     assert r["PRO-03"].outcome == "NOT_EVALUATED" and r["PRO-05"].outcome == "NOT_EVALUATED"
+
+
+def test_commodity_pass_needs_a_complete_list(sub):
+    # D-29: 'not listed' is evidence only when the shares add up; a partial list is not determinable
+    db, s = sub
+    pct = db.query(Field).filter_by(submission_id=s.id, name="percent").first()
+    pct.value = "10"   # 10+30+20 = 60%
+    db.commit()
+    engine.evaluate(db, s)
+    r = _results(db, s)
+    assert r["PRO-02"].outcome == "NOT_EVALUATED" and "60" in r["PRO-02"].message
 
 
 def test_listed_term_without_loss_run_is_a_conflict(sub):

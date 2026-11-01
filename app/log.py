@@ -13,7 +13,8 @@ _PII_PATTERNS = [
     (re.compile(r"\b\d{2}-\d{7}\b"), "[FEIN]"),
     # License numbers: a letter followed by 7+ digits (CA/NJ style), optionally spaced
     (re.compile(r"\b[A-Z]\d{4}[\s-]?\d{3,5}[\s-]?\d{0,5}\b"), "[DL#]"),
-    (re.compile(r"\b(0?[1-9]|1[0-2])[/-](0?[1-9]|[12]\d|3[01])[/-](19\d{2})\b"), "[DOB?]"),
+    # Any full date: a DOB can't be told apart from other dates in free text, and drivers born 2000+ exist
+    (re.compile(r"\b(0?[1-9]|1[0-2])[/-](0?[1-9]|[12]\d|3[01])[/-]((19|20)\d{2})\b"), "[DATE]"),
 ]
 
 

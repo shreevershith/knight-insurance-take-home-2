@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 from app.extract.normalize import parse_date, parse_number, state_code
 from app.rules import derived
-from app.rules.engine import APP_DOCS, Result, _per_driver, missing, rule
+from app.rules.engine import APP_DOCS, Result, _per_driver, commodity_lists, missing, rule
 
 LOSS_DOCS = {"LOSS_RUN"}
 SCHEDULE_DOCS = {"VEHICLE_SCHEDULE", "DRIVER_SCHEDULE", "APPLICATION", "QUOTE_FORM"}
@@ -475,8 +475,12 @@ def auto_hauler(v, cfg) -> Result:
     ids = answer.field_ids + [i for c in commodities for i in c.field_ids]
     if answer.norm is False:
         return Result(True, "auto hauler: answered no", ids)
+    complete = [lst for lst in commodity_lists(v) if lst["complete"]]  # D-29: not listed counts only if complete
+    if complete:
+        return Result(True, f"no automobiles among the commodities; the list is complete ({complete[0]['total']:g}%)",
+                      [i for lst in complete for i in lst["ids"]])
     if commodities:
-        return Result(True, f"no automobiles among {len(commodities)} listed commodities (not listed is weaker than answered No)", ids)
+        return Result(None, "no automobiles listed, but the commodity list is not shown complete", ids)
     return missing(v, "Auto-hauler answer or commodity list", APP_DOCS)
 
 

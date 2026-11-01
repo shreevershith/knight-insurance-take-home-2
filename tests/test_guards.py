@@ -47,6 +47,19 @@ def test_missing_answers_never_decline(db):
     assert r["SUB-01"].outcome == "REFER"  # a REQUIRED item that is absent is still a failure
 
 
+def test_unclassified_page_means_unread_not_missing(db):
+    s = _new_sub(db, [("applicant", "application_date", "10/22/2026", "OK")])
+    d = Document(submission_id=s.id, filename="scan.pdf", sha256="u", blob_path="x", status="OK")
+    db.add(d)
+    db.flush()
+    db.add(Page(document_id=d.id, page_no=1, doc_type="OTHER", status="UNCLASSIFIED", text=""))
+    db.commit()
+    engine.evaluate(db, s)
+    r = _results(db, s)
+    # the FEIN might be on the page we couldn't type: not "missing", but not determinable
+    assert r["SUB-01"].outcome == "NOT_EVALUATED" and "could not be read" in r["SUB-01"].message
+
+
 def test_low_confidence_never_passes_and_never_declines(db):
     s = _new_sub(db, [("operations", "hazmat", "no", "LOW_CONFIDENCE"),
                       ("operations", "intermodal", "yes", "LOW_CONFIDENCE"),

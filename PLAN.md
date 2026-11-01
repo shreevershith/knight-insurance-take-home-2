@@ -1,7 +1,7 @@
 # Knight Insurance – Commercial Auto Intake Prototype: PLAN
 
-Status: planning only, no code yet. Every file in `candidate_materials/` was read by hand (text layers extracted, all image-only pages rendered and viewed).
-The decisions log lives in [DECISIONS.md](DECISIONS.md). All decisions D-01 to D-20 are DECIDED (10/31/2026).
+Status (11/01/2026): **built and running.** Branch `build`; the pipeline runs end to end on the sample on PostgreSQL 18 (D-33); all 42 guideline rules are implemented; eval 87/87 on the sample (a regression check, D-19); 53 tests. Section 5b below is a claims check against the code. Every file in `candidate_materials/` was read by hand (text layers extracted, all image-only pages rendered and viewed).
+The decisions log lives in [DECISIONS.md](DECISIONS.md): D-01 to D-33 are DECIDED (D-23 superseded by D-31). Every real model run and its cost is in [RUN_LOG.md](RUN_LOG.md).
 
 Reference dates used below: application date **10/22/2026** (KNIGHT.xlsx E7), requested effective date **12/15/2026**, today **10/31/2026**.
 
@@ -106,7 +106,7 @@ Proposed rule config shape: `rules/knight_trucking_v1.yaml` with `id, version, s
 |---|---|---|
 | DRV-01 | Holds a valid U.S. driver license (MVR status VALID, not expired at the anchor date) | REFER (AMB-5) |
 | DRV-02 | Holds a valid CDL (class A/B commercial) | REFER (AMB-5) |
-| DRV-03 | CDL experience ≥ 2 years in US/Canada (from CDL issue date, or "first issued" on the MVR, to the anchor date) | REFER |
+| DRV-03 | CDL experience ≥ 2 years in US/Canada, from the **earliest documented CDL evidence** to the anchor date (D-26): a commercial license's issue date (MVR or photographed card), a `cdl_issue_date`, or an MVR history event naming a CDL. A lower bound: the MVR "Iss Date" is only the current card and "first issued" covers any license, so neither is used as the start. No evidence → NOT_EVALUATED. | REFER |
 | DRV-04 | `age ≥ 23` at the anchor date | REFER |
 | DRV-05 | If `age ≥ 65`, a DOT medical exam report is on file | REFER if missing |
 | DRV-06 | Points over the last 36 months ≤ 6 **and** points over the last 12 months ≤ 4 | REFER ("generally"). AMB-7 on how points are counted |
@@ -401,22 +401,24 @@ A real path through the same stages: one process, one DB, same data model.
    ─► web UI (summary · extracted · missing · conflicts · AI findings · rule outcomes · next actions) ─► overrides ─► audit log ─► re-run rules
 ```
 
-Stack (decided, D-01–D-04): Python 3.12 · FastAPI · SQLite through SQLAlchemy (same schema works on Postgres) · Jinja + HTMX UI · pdfplumber/pypdfium2 + openpyxl · Anthropic Claude API (vision + structured JSON output) · pytest. Single `docker compose up` or `uvicorn`.
+Stack (as built): Python 3.12 · FastAPI · **PostgreSQL 18** through SQLAlchemy and psycopg (D-33; SQLite still works by removing `DATABASE_URL`) · Jinja templates with plain JavaScript (no HTMX) · pdfplumber/pypdfium2 + openpyxl · Anthropic Claude API with per-task models (Haiku classify/extract, Sonnet transcribe, Opus analyst; D-31) · pytest. Run with `uvicorn app.web.main:app`; Docker is designed, not built (D-25).
 
-| Production quality | How the slice does it | Built / Designed |
-|---|---|---|
-| Evidence + confidence on every value | `Field` table: value, normalized_value, confidence, method (xlsx / llm-text / llm-vision-transcript / human), evidence (doc, page, excerpt). The code rejects any excerpt that isn't found in the page text, or whose value isn't in the excerpt. Confidence = method prior × validator results (VIN check digit, date parse, IFTA totals reconcile, agreement across documents). The priors are starting points that the eval set and overrides calibrate (D-14). For scans, the check runs against the vision transcript (model output), so these values get a lower prior and need cross-checks to confirm them (D-02). The UI shows the **source page image beside each value**. | **Built** |
-| Rules = versioned config + deterministic code | `rules/knight_v1.yaml` (params, thresholds, state list) + Python predicate per rule ID. Each RuleRun stores rule version + input field IDs. The LLM never decides. | **Built** |
-| Conflicts surfaced, never silently resolved | Typed comparators (name fuzzy, date exact, VIN exact, count). Each conflict lists every source value with evidence. A "preferred" value is suggested (e.g. the newest MVR), but status stays OPEN until a human resolves it. | **Built** |
-| Human overrides with audit | Override a field, resolve a conflict, or waive a flag, with a mandatory reason. Append-only `audit_event`. Rules re-run and the diff is shown. | **Built** |
-| Explicit failure states | Document status: `UNREADABLE`, `MODEL_ERROR`, `UNCLASSIFIED`, `LOW_CONFIDENCE`. These become "missing" or REFER inputs, never guessed values. | **Built** |
-| Structured logs, retries/timeouts, secrets in env | JSON logs with submission_id/doc_id; tenacity retries with backoff + timeout on LLM calls; `.env` + `.env.example`; DL numbers and DOB masked in logs | **Built** |
-| PII awareness | Masking in logs and UI list views; no PII in URLs; note on the vendor retention setting | **Built (basic)**, full RBAC **Designed** |
-| Eval set | `eval/cobalt_mesa_expected.json` with about 60 field values from section 3.2 + expected conflicts + expected rule outcomes. `make eval` prints field accuracy, conflict recall, rule match. This is a **regression check** (built against the same sample). A small **held-out set** (a reworded/relaid-out loss run + the synthetic files from D-13) is used only for measurement. | **Built** |
-| Async processing | DB-backed job table + background worker thread; UI polls status | **Built (in-process)**, queue/workers **Designed** |
-| All guideline rules | Every rule in section 2 is implemented. If a rule's input can't be determined, it returns `NOT_EVALUATED`, which counts as REFER and never as a pass. | **Built** (D-20) |
-| Config-driven outcome | `operating_states_mode` flag flips the sample from REFER to DECLINE live | **Built** (D-05) |
-| Real email ingestion, SSO/RBAC, KMS, FMCSA lookups, dashboards, multi-tenant | – | **Designed only** |
+**Claims check (11/01/2026, against the code).** Verified = true as written; Partial = true with the stated gap; Missing = not built (claim downgraded).
+
+| Production quality | What the code does | Status | Where |
+|---|---|---|---|
+| Evidence + confidence on every value | Each `Field` stores value, excerpt, method (xlsx / llm_text / llm_vision / human), confidence and its validation results. The excerpt must be found in the page text and contain the value, else confidence drops below the 0.85 review threshold. Confidence = method prior × evidence × validators, raised by agreement across documents and by IFTA rows reconciling. Gaps: the normalized value is computed on read (`normalize.py`), not stored; the page image is one click away (**View page** in a side drawer), for scanned pages only, not shown beside every value. | **Partial** | `app/db.py:84`, `app/extract/evidence.py:23`, `app/extract/evidence.py:53`, `app/pipeline.py` `_cross_document_confirmation` |
+| Rules = versioned config + deterministic code | `knight_v1.yaml` holds params, thresholds, keyword patterns and 42 rules, each quoting its clause. One Python predicate per rule ID. Every rule result stores the rules version (the YAML version plus a file hash) and the input field IDs. An invalid YAML falls back to the last good config. The LLM never decides. | **Verified** | `app/rules/engine.py:95`, `:115`, `:473`; `app/rules/guideline_rules.py` |
+| Conflicts surfaced, never silently resolved | Comparators per field type (names via `names_compatible`, dates, VINs, counts) across independent sources, plus inventory conflicts (a listed term with no loss run) and claims vs schedules. Each conflict lists every source value; a suggested value is shown, and the status stays OPEN until a person resolves it. The one system resolution, a superseded duplicate MVR, says so in its resolution text. | **Verified** | `app/conflicts.py:36`, `:210` |
+| Human overrides with audit | Override a value or resolve a conflict, each with a required reason, written to `audit_event`. The rules re-run immediately, and the Rule checks section shows what changed since the previous run ("was refer"). There is **no "waive a flag" action**: a flag is cleared by correcting the value or resolving the conflict behind it. | **Partial** (no waive) | `app/review.py:50`, `:69`, `:101`; `app/db.py:168`; `app/web/main.py:195` |
+| Explicit failure states | Page status `UNREADABLE`, `MODEL_ERROR` or `UNCLASSIFIED`; field status `LOW_CONFIDENCE`. A rule that needs a value from such a page reports "could not be read", never "missing" (fixed 11/01 to include UNCLASSIFIED pages). | **Verified** | `app/pipeline.py:219`, `app/rules/view.py:41`; test `test_unclassified_page_means_unread_not_missing` |
+| Structured logs, retries/timeouts, secrets in env | JSON logs with submission_id/page_id context. Retries and timeouts come from the **Anthropic SDK** (`max_retries=3` with backoff, 180 s timeout), **not tenacity** (removed from requirements, it was never used). Model errors, refusals and truncation become `LLMError` → `MODEL_ERROR`. Secrets in `.env` (git-ignored) with `.env.example`. Logs mask SSN, FEIN, driver-license numbers and any full date (DOBs included, 1900s and 2000s). | **Verified** (retries via SDK) | `app/log.py:21`, `:27`; `app/llm.py:47`, `:60`; test `test_logs_mask_ssn_fein_license_numbers_and_dates` |
+| PII awareness | Masking in logs; no PII in URLs (numeric IDs only). The UI shows license numbers and DOBs to the underwriter by design, since they are needed for review. No RBAC or SSO (single reviewer identity). | **Partial**; RBAC **Designed** | `app/log.py:21` |
+| Eval set | `eval/cobalt_mesa_expected.json`: **87 checks** (field values, derived values such as CDL years and TIV, all 42 rule outcomes, decision and team, 12 expected conflicts), run with `python eval/run_eval.py` (there is no `make eval`). A **regression check** on the sample. **The held-out set (D-19) and the synthetic JPG + corrupt file (D-13) are not built.** | **Partial** (held-out **Missing**) | `eval/run_eval.py:25` |
+| Async processing | Each job runs in a background thread. An atomic claim allows one active job per submission (a second start gets HTTP 409). A restart marks cut-off jobs INTERRUPTED. The UI polls a status endpoint for the live step list. There is **no job table, worker process, SKIP LOCKED, lease or retry count** (D-25). Database: Postgres 18 (D-33). | **Partial** (in-process); queue and workers **Designed** | `app/web/main.py:31`, `:221`; `app/pipeline.py:36`, `:47`; tests `test_one_active_job_per_submission`, `test_restart_marks_cut_off_jobs_interrupted` |
+| All guideline rules | 42 rules covering every section of the guideline. PRO-04 is covered by ST-01/ST-04, and RTE-02 is the decision mapping. An undeterminable input gives `NOT_EVALUATED` (refer, never pass). | **Verified** | `app/rules/knight_v1.yaml`; `app/rules/engine.py`; `app/rules/guideline_rules.py:135` |
+| Config-driven outcome | `operating_states_mode: decline` turns the sample from REFER to DECLINE; the rules version changes with the file. | **Verified** | `app/rules/knight_v1.yaml:12`, `app/rules/engine.py:333`; tests `test_states_dedupe_and_config_flip`, `test_config_change_changes_version` |
+| Real email ingestion, SSO/RBAC, KMS, FMCSA lookups, dashboards, multi-tenant, Docker | – | **Designed only** | |
 
 **Scope: full, no planned cuts (D-20).** The list below is a contingency only, kept because the original brief asked for it.
 **Cut order if time runs short** (first cut first):

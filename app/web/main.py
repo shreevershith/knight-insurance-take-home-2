@@ -189,6 +189,11 @@ def show(request: Request, sub_id: int):
         last = db.query(RuleResult).filter(RuleResult.submission_id == sub_id).order_by(RuleResult.id.desc()).first()
         rules = (db.query(RuleResult).filter(RuleResult.submission_id == sub_id, RuleResult.run_id == last.run_id)
                  .order_by(RuleResult.id).all()) if last else []
+        # what the previous rules run said, so the page shows what a re-run changed
+        before = (db.query(RuleResult).filter(RuleResult.submission_id == sub_id, RuleResult.run_id != last.run_id)
+                  .order_by(RuleResult.id.desc()).first()) if last else None
+        previous = {r.rule_id: r.outcome for r in db.query(RuleResult).filter(
+            RuleResult.submission_id == sub_id, RuleResult.run_id == before.run_id)} if before else {}
         audits = db.query(AuditEvent).filter(AuditEvent.submission_id == sub_id).order_by(AuditEvent.id.desc()).all()
         entities = defaultdict(list)
         for f in fields:
@@ -204,7 +209,7 @@ def show(request: Request, sub_id: int):
             "run_started": next((_utc_iso(entry.at) for entry in reversed(logs)
                                  if entry.message.startswith("=== New run")), ""),
             "low_confidence": sum(f.status == "LOW_CONFIDENCE" for f in fields),
-            "value_groups": value_groups, "ifta_rows": ifta_rows, "names": names,
+            "value_groups": value_groups, "ifta_rows": ifta_rows, "names": names, "previous": previous,
             "ifta_columns": IFTA_COLUMNS,
             "company": next((f.value for f in sorted(fields, key=lambda f: f.method != "human")
                              if f.entity_key == "applicant" and f.name == "business_name"

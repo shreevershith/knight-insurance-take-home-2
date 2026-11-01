@@ -18,7 +18,7 @@ import yaml
 
 from app.config import RULES_FILE
 from app.db import RuleResult, Submission, audit
-from app.extract.normalize import vin_check
+from app.extract.normalize import parse_number, vin_check
 from app.log import get_logger
 from app.rules.view import SubmissionView
 
@@ -354,16 +354,47 @@ def _answered_no(v, field_name, label) -> Result:
     return missing(v, f"{label} answer", APP_DOCS)
 
 
+def commodity_lists(v: SubmissionView) -> list[dict]:
+    """Commodity lists per source document: names, the total of their percentages, and whether the
+    list is provably complete (shares add up to 100%; the app writes 0.5, the quote writes 50)."""
+    lists: dict[str, dict] = {}
+    for key in v.entities("commodity:"):
+        name, pct = v.value(key, "commodity"), v.value(key, "percent")
+        if not name.raw:
+            continue
+        doc = key.split(":")[1]
+        lst = lists.setdefault(doc, {"names": [], "shares": [], "ids": []})
+        lst["names"].append(name.raw)
+        lst["shares"].append(parse_number(pct.raw))
+        lst["ids"] += name.field_ids + pct.field_ids
+    for lst in lists.values():
+        shares = lst["shares"]
+        if any(s is None for s in shares):
+            lst["total"], lst["complete"] = None, False
+            continue
+        total = sum(shares) * (100 if all(s <= 1 for s in shares) else 1)
+        lst["total"], lst["complete"] = round(total, 1), 98 <= total <= 102
+    return list(lists.values())
+
+
 def _commodity_check(v, pattern, label) -> Result:
-    names = [(k, v.value(k, "commodity")) for k in v.entities("commodity:")]
-    names = [(k, n) for k, n in names if n.raw]
-    if not names:
+    """D-29: 'not listed' is evidence only when the list is complete (shares total 100%), and the
+    PASS cites the names and percentages that show it. Otherwise the answer is not determinable."""
+    lists = commodity_lists(v)
+    if not lists:
         return missing(v, "Commodity list", APP_DOCS)
-    hits = [n.raw for _, n in names if re.search(pattern, n.raw, re.I)]
-    ids = [i for _, n in names for i in n.field_ids]
+    hits = [n for lst in lists for n in lst["names"] if re.search(pattern, n, re.I)]
     if hits:
-        return Result(False, f"{label}: commodity {', '.join(hits)}", ids)
-    return Result(True, f"no {label.lower()} among {len(names)} listed commodities (not listed is weaker than answered No)", ids)
+        return Result(False, f"{label}: commodity {', '.join(hits)}",
+                      [i for lst in lists for i in lst["ids"]])
+    complete = [lst for lst in lists if lst["complete"]]
+    if not complete:
+        totals = ", ".join(f"{lst['total']}%" if lst["total"] is not None else "shares missing" for lst in lists)
+        return Result(None, f"no {label.lower()} listed, but no commodity list is shown complete ({totals})",
+                      [i for lst in lists for i in lst["ids"]])
+    return Result(True, f"no {label.lower()} among the commodities; the list is complete ("
+                  + "; ".join(f"{len(lst['names'])} commodities totalling {lst['total']:g}%" for lst in complete) + ")",
+                  [i for lst in complete for i in lst["ids"]])
 
 
 @rule("PRO-01")

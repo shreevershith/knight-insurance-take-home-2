@@ -32,15 +32,16 @@ class SubmissionView:
             self.by_entity[f.entity_key].append(f)
         self.open_conflicts = db.query(Conflict).filter(Conflict.submission_id == submission_id,
                                                         Conflict.status == "OPEN").all()
-        # Pages we could not read. A value "missing" from these may simply be unread.
+        # Pages we could not read, or could not tell the type of. A value "missing" from these may
+        # simply be unread, so it is never reported as missing from the submission.
         self.failed_pages = (db.query(Page).join(Document)
                              .filter(Document.submission_id == submission_id,
-                                     Page.status.in_(("MODEL_ERROR", "UNREADABLE"))).all())
+                                     Page.status.in_(("MODEL_ERROR", "UNREADABLE", "UNCLASSIFIED"))).all())
 
     def unread(self, doc_types: set[str]) -> list[str]:
-        """Failed pages that are (or, if never classified, might be) one of doc_types."""
+        """Failed pages that are (or, if their type is unknown, might be) one of doc_types."""
         return [f"{p.document.filename} p{p.page_no} ({p.status})" for p in self.failed_pages
-                if not p.doc_type or p.doc_type in doc_types]
+                if p.status == "UNCLASSIFIED" or not p.doc_type or p.doc_type in doc_types]
 
     def value(self, entity_key: str, name: str, doc_types: set[str] | None = None) -> Value:
         candidates = [f for f in self.by_entity.get(entity_key, []) if f.name == name

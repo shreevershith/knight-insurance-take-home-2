@@ -113,7 +113,8 @@
 .rule .why { color: var(--ink-2); margin-top: 2px; font-size: 13.5px; overflow-wrap: anywhere; }
 .rule .cl { font-family: var(--serif); font-style: italic; color: var(--muted); font-size: 13.5px; margin-top: 4px; }
 .rule .in { margin-top: 8px; }
-.rule .st { justify-self: end; }
+.rule .st { justify-self: end; text-align: right; }
+.rule .was { font-size: 11.5px; color: var(--ovr); margin-top: 4px; }
 @media (max-width: 640px) { .rule { grid-template-columns: 52px 1fr; } .rule .st { grid-column: 2; justify-self: start; } }
 
 /* conflicts */
@@ -314,7 +315,9 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 </section>
 
 <section id="sec-rules">
-  <div class="sec-hd"><h2>Rule checks</h2><span class="aside">Knight Trucking Program guideline · {{ rules|length }} rules, failures first</span></div>
+  {% set changed = [] %}{% for r in rules if previous.get(r.rule_id) and previous[r.rule_id] != r.outcome %}{% set _ = changed.append(r) %}{% endfor %}
+  <div class="sec-hd"><h2>Rule checks</h2><span class="aside">Knight Trucking Program guideline · {{ rules|length }} rules, failures first</span>
+    {% if previous %}<span class="aside">· {{ changed|length }} changed since the previous run</span>{% endif %}</div>
   {% for o in outcome_order %}{% for r in rules if r.outcome == o %}
   <div class="rule" id="R{{ r.id }}">
     <div class="id">{{ r.rule_id }}</div>
@@ -323,7 +326,8 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
       {% set inputs = [] %}{% for fid in r.input_field_ids if field_by_id.get(fid) %}{% set _ = inputs.append(field_by_id[fid]) %}{% endfor %}
       {% if inputs %}<div class="in chips"><span class="small muted">Based on</span>{% for g in inputs|groupby('name') %}
         <a class="chip" href="#F{{ g.list[0].id }}" title="{{ g.list|length }} value(s)">{{ g.grouper|replace('_', ' ') }}{% if g.list|length > 1 %} ×{{ g.list|length }}{% endif %}</a>{% endfor %}</div>{% endif %}</div>
-    <div class="st"><span class="pill {{ r.outcome }}">{{ r.outcome|replace('_', ' ') }}</span></div>
+    <div class="st"><span class="pill {{ r.outcome }}">{{ r.outcome|replace('_', ' ') }}</span>
+      {% if previous and previous.get(r.rule_id) and previous[r.rule_id] != r.outcome %}<div class="was">was {{ previous[r.rule_id]|replace('_', ' ')|lower }}</div>{% endif %}</div>
   </div>{% endfor %}{% else %}{% endfor %}
   {% if not rules %}<p class="muted">Not evaluated yet.</p>{% endif %}
 </section>
