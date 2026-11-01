@@ -22,6 +22,21 @@ params:
   min_driver_age: 23
   dot_medical_age: 65
   valid_license_statuses: [VALID]
+  # D-16: "new venture" is undefined in the guideline; fewer years in business than this counts
+  new_venture_max_years: 3
+  # Driver point thresholds ("generally": REFER, never DECLINE; D-08 printed points, by violation date)
+  points_max_36_months: 6
+  points_max_12_months: 4
+  dui_lookback_months: 60
+  speeding_over_limit_mph: 30
+  # Selective exposures
+  selective_states: [IL]
+  box_truck_min_premium: 250000
+  low_premium_per_unit: 13000
+  low_premium_min_units: 20
+  # Prior insurance
+  prior_coverage_years: 3
+  max_lapse_days: 30
 
 # Text patterns the rules match (case-insensitive regex). Kept here, not in code, so underwriting can
 # widen a keyword list without a code change; every change shows up in rules_version (file hash).
@@ -35,21 +50,55 @@ patterns:
   border_states: [CA, AZ, NM, TX]
   # D-26: MVR history events that prove a CDL was held on that date
   cdl_event: '\bCDL\b|COMMERCIAL'
+  # Vehicle types (matched on the schedule's type, or its model/body text when no type column exists)
+  tractor: 'tractor|semi'
+  ineligible_vehicle: 'straight truck|tow truck|wrecker|dump|concrete|mixer|pumper|crane|mobile equipment'
+  # AMB-1: box trucks / transit vans are straight trucks, but the guideline names them as selective:
+  # they go to SEL-02 (refer) and are not declined by APP-02
+  box_truck: 'box truck|box van|transit|cargo van|step van'
+  interstate: '48 states|interstate|regional|nationwide|long haul|multi.?state'
+  no_deductible: '^\s*(none|no|n/?a|do not offer|not requested|\$?\s*-|\$?\s*0(\.0+)?)\s*$'
+  # Unacceptable driver history (DECLINE). DUI/DWI only within dui_lookback_months; the rest at any time (AMB-9)
+  dui: '\bDUI\b|\bDWI\b|\bOWI\b|\bOUI\b|under the influence|intoxicat|impaired'
+  unacceptable_history: 'vehicular (homicide|manslaughter|assault)|negligent driv|reckless|hit.?and.?run|leaving the scene|flee|fleeing|elud|felony|school bus'
+  # "15-29 MPH OVER" -> 15..29; "31+ MPH OVER" -> 31..; a range that may exceed the limit is "possible", not a decline
+  speeding_over: '(\d+)\s*(?:-|to)\s*(\d+)\s*mph\s*over|(\d+)\s*\+?\s*mph\s*over'
+  auto_hauler: 'auto.?haul|car.?haul|automobiles|new cars|used cars|vehicle transport'
+  small_entity: 'sole|proprietor|partnership|\bLLC\b|limited liability'
+  corporation: 'corporation|\bcorp\b|\binc\b|incorporated'
 
 # outcome: what happens when the rule fails. PASS / FLAG / REFER / DECLINE.
 rules:
-  - id: SUB-01
-    title: Application has FEIN or SSN
-    clause: "Complete submission required: application with FEIN/SSN and MC/Docket number"
+  # ---- appetite and coverage
+  - id: APP-01
+    title: Power units are tractors (semi-trucks)
+    clause: "Target risk: Semi-trucks hauling general freight across state lines."
     outcome: REFER
-  - id: SUB-02
-    title: Application has MC / docket number
-    clause: "Complete submission required: application with FEIN/SSN and MC/Docket number"
+  - id: APP-02
+    title: No ineligible vehicle types
+    clause: "Not eligible: Straight trucks, tow trucks, dump trucks, concrete mixers/pumpers, cranes, or mobile equipment regardless of GVW."
+    outcome: DECLINE
+  - id: APP-03
+    title: Operates across state lines
+    clause: "Target risk: Semi-trucks hauling general freight across state lines."
     outcome: REFER
-  - id: SUB-08
-    title: Vehicle schedule has year, make, 17-character VIN and stated value for every unit
-    clause: "vehicle schedule with year, make, 17-character VIN and stated value"
+  - id: COV-01
+    title: No auto liability deductible requested
+    clause: "Auto liability deductibles: Not allowed."
     outcome: REFER
+  - id: COV-02
+    title: Physical damage (APD) is not offered
+    clause: "Auto physical damage: Not available."
+    outcome: FLAG
+  - id: NV-01
+    title: New venture (sole prop / partnership / LLC) has 2 years CDL experience and a resume
+    clause: "New ventures: Sole proprietors, partnerships, and LLCs acceptable with 2 years documented CDL experience and resume/letter of experience"
+    outcome: REFER
+  - id: NV-02
+    title: New venture corporation needs underwriter review
+    clause: "New ventures: ... corporations subject to underwriter review."
+    outcome: REFER
+  # ---- states
   - id: ST-01
     title: Domicile is an available state
     clause: "Available States: AL, AZ, AR, CA, SC, SD, TN, TX*, UT, VA, WV, WI, WY"
@@ -58,10 +107,81 @@ rules:
     title: Texas operations north of I-10
     clause: "*TX: Accounts must operate north of Interstate 10 (I-10)"
     outcome: REFER
+  - id: ST-03
+    title: Illinois-based accounts are selective
+    clause: "Illinois-based accounts on selective basis."
+    outcome: REFER
   - id: ST-04
     title: Operating states are available states
     clause: "Prohibited exposures: ... non-listed states (see settings.operating_states_mode, D-05)"
     outcome: REFER
+  # ---- submission completeness
+  - id: SUB-01
+    title: Application has FEIN or SSN
+    clause: "Complete submission required: application with FEIN/SSN and MC/Docket number"
+    outcome: REFER
+  - id: SUB-02
+    title: Application has MC / docket number
+    clause: "Complete submission required: application with FEIN/SSN and MC/Docket number"
+    outcome: REFER
+  - id: SUB-03
+    title: Loss runs valued within 60 days
+    clause: "current loss runs valued within 60 days"
+    outcome: REFER
+  - id: SUB-04
+    title: Loss runs for the expiring year and at least 3 prior years
+    clause: "including expiring year and at least 3 prior years"
+    outcome: REFER
+  - id: SUB-05
+    title: Most recent 4 quarters of IFTA returns
+    clause: "most recent 4 quarters of IFTA reports"
+    outcome: REFER
+  - id: SUB-06
+    title: Driver schedule present
+    clause: "driver schedule with MVRs dated within 90 days of the application"
+    outcome: REFER
+  - id: SUB-07
+    title: Every scheduled driver has an MVR dated within 90 days
+    clause: "driver schedule with MVRs dated within 90 days of the application"
+    outcome: REFER
+  - id: SUB-08
+    title: Vehicle schedule has year, make, 17-character VIN and stated value for every unit
+    clause: "vehicle schedule with year, make, 17-character VIN and stated value"
+    outcome: REFER
+  # ---- drivers (D-06: baseline failures REFER; the unacceptable-history list DECLINEs)
+  - id: DRV-01
+    title: Every driver holds a valid U.S. driver license
+    clause: "Driver baseline: Valid U.S. driver license and CDL"
+    outcome: REFER
+  - id: DRV-02
+    title: Every driver holds a valid CDL
+    clause: "Driver baseline: Valid U.S. driver license and CDL"
+    outcome: REFER
+  - id: DRV-03
+    title: Every driver has 2+ years CDL experience
+    clause: "Driver baseline: minimum 2 years CDL driving experience in the U.S. or Canada"
+    outcome: REFER
+  - id: DRV-04
+    title: Every driver is 23 or older
+    clause: "Driver baseline: age 23+"
+    outcome: REFER
+  - id: DRV-05
+    title: Drivers 65+ have a DOT medical examination report
+    clause: "drivers age 65+ must provide acceptable DOT medical examination report"
+    outcome: REFER
+  - id: DRV-06
+    title: Driver points within thresholds
+    clause: "Generally no more than 6 points in 3 years or 4 points in 12 months."
+    outcome: REFER
+  - id: DRV-07
+    title: No DUI/DWI in the past 5 years
+    clause: "Unacceptable driver history: DUI/DWI in past 5 years"
+    outcome: DECLINE
+  - id: DRV-08
+    title: No other unacceptable driver history
+    clause: "vehicular homicide/assault; negligent or reckless driving; speeding over 30 mph above limit; hit-and-run; fleeing/eluding; felony involving a motor vehicle; passing a stopped school bus"
+    outcome: DECLINE
+  # ---- prohibited exposures
   - id: PRO-01
     title: No hazardous materials
     clause: "Prohibited exposures: Hazardous materials"
@@ -90,18 +210,33 @@ rules:
     title: No waste disposal
     clause: "Prohibited exposures: waste disposal"
     outcome: DECLINE
-  - id: DRV-02
-    title: Every driver holds a valid CDL
-    clause: "Driver baseline: Valid U.S. driver license and CDL"
+  # ---- selective exposures
+  - id: SEL-01
+    title: Automobile haulers are selective
+    clause: "Selective exposures: Automobile haulers"
     outcome: REFER
-  - id: DRV-03
-    title: Every driver has 2+ years CDL experience
-    clause: "Driver baseline: minimum 2 years CDL driving experience in the U.S. or Canada"
+  - id: SEL-02
+    title: Box trucks / transit vans need a $250,000 minimum premium
+    clause: "Selective exposures: box trucks/transit vans with minimum premium $250,000"
     outcome: REFER
-  - id: DRV-04
-    title: Every driver is 23+ (65+ needs a DOT medical report)
-    clause: "Driver baseline: age 23+; drivers age 65+ must provide acceptable DOT medical examination report"
+  - id: SEL-03
+    title: Under $13,000 per power unit needs 20+ power units
+    clause: "accounts seeking less than $13,000 per power unit must have at least 20 power units"
     outcome: REFER
+  # ---- prior insurance
+  - id: PRI-01
+    title: Continuous commercial auto coverage for the last 3 years
+    clause: "Continuous commercial auto coverage for the most recent 3 years"
+    outcome: REFER
+  - id: PRI-02
+    title: Any lapse over 30 days is explained
+    clause: "any lapse over 30 days must be explained before quoting"
+    outcome: REFER
+  - id: PRI-03
+    title: Losses reported for every prior term on the application
+    clause: "Losses must be reported for every prior term listed on the application."
+    outcome: REFER
+  # ---- routing and referral
   - id: CONFLICTS
     title: No unresolved conflicting information
     clause: "Missing required documents, conflicting information or any other flag above: refer to an underwriter"

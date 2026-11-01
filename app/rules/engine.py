@@ -26,6 +26,9 @@ log = get_logger(__name__)
 SEVERITY = {"PASS": 0, "FLAG": 1, "NOT_EVALUATED": 2, "ERROR": 2, "REFER": 2, "DECLINE": 3}
 FAIL_OUTCOMES = {"REFER", "DECLINE", "FLAG"}
 PREDICATES = {}
+REQUIRED_PATTERNS = ("PRO-02", "PRO-06", "PRO-08", "cdl_event", "tractor", "ineligible_vehicle", "box_truck",
+                     "interstate", "no_deductible", "dui", "unacceptable_history", "speeding_over",
+                     "auto_hauler", "small_entity", "corporation")
 
 
 def rule(rule_id):
@@ -60,8 +63,10 @@ def validate_config(cfg) -> list[str]:
         if name not in cfg["params"]:
             errors.append(f"params.{name} is required")
     pats = cfg.get("patterns") or {}
-    regexes = dict((pats.get("commodity_prohibited") or {}), cdl_event=pats.get("cdl_event"))
-    for name in ("PRO-02", "PRO-06", "PRO-08", "cdl_event"):
+    # every string under patterns is a regex: commodity_prohibited.* plus the top-level ones
+    regexes = dict(pats.get("commodity_prohibited") or {})
+    regexes.update({k: v for k, v in pats.items() if isinstance(v, str)})
+    for name in REQUIRED_PATTERNS:
         if not regexes.get(name):
             errors.append(f"patterns: '{name}' is required")
     for name, pattern in regexes.items():
@@ -199,7 +204,9 @@ def route_by_units(v: SubmissionView, cfg) -> Result:
         counts["prior policy (current term)"] = int(current_units[0])
         ids += current_units[1]
     units = max(counts.values()) if counts else 0
-    team = "Small Fleet" if units <= cfg["params"]["small_fleet_max_units"] else "Fleet"
+    if not units:  # no power units found anywhere: picking a team would be a guess
+        return missing(v, "Power units (vehicle schedule or prior-policy unit count)", {"VEHICLE_SCHEDULE", "QUOTE_FORM", "APPLICATION"})
+    team ="Small Fleet" if units <= cfg["params"]["small_fleet_max_units"] else "Fleet"
     detail = ", ".join(f"{k}: {n}" for k, n in counts.items())
     note = " (sources disagree; using the higher count)" if len(set(counts.values())) > 1 else ""
     return Result(True, f"{units} power units -> {team} underwriting [{detail}]{note}", ids, outcome=f"ROUTE:{team}")
@@ -281,7 +288,7 @@ def cdl_experience(v: SubmissionView, cfg) -> Result:
 
 @rule("DRV-04")
 def driver_age(v: SubmissionView, cfg) -> Result:
-    min_age, med_age = cfg["params"]["min_driver_age"], cfg["params"]["dot_medical_age"]
+    min_age = cfg["params"]["min_driver_age"]  # 65+ medical report: DRV-05
 
     def check(key, on):
         dob = v.value(key, "dob")
@@ -291,8 +298,6 @@ def driver_age(v: SubmissionView, cfg) -> Result:
         age = on.year - d.year - ((on.month, on.day) < (d.month, d.day))
         if age < min_age:
             return False, f"age {age} (< {min_age})", dob.field_ids
-        if age >= med_age:
-            return False, f"age {age}: DOT medical exam report required (not checked)", dob.field_ids
         return True, f"age {age}", dob.field_ids
     return _per_driver(v, check)
 
@@ -476,3 +481,7 @@ def evaluate(db, sub: Submission, actor: str = "system") -> str:
         after["config_error"] = cfg["_config_error"]
     audit(db, sub.id, actor, "rules.evaluated", f"run:{run_id}", before=before, after=after)
     return run_id
+
+
+# the remaining guideline sections register their predicates on import
+from app.rules import guideline_rules  # noqa: E402,F401

@@ -193,7 +193,31 @@
     "DRV-03": "REFER",
     "DRV-04": "PASS",
     "CONFLICTS": "REFER",
-    "RTE-01": "FLAG"
+    "RTE-01": "FLAG",
+    "APP-01": "PASS",
+    "APP-02": "PASS",
+    "APP-03": "PASS",
+    "COV-01": "PASS",
+    "COV-02": "FLAG",
+    "NV-01": "PASS",
+    "NV-02": "PASS",
+    "ST-03": "PASS",
+    "SUB-03": "PASS",
+    "SUB-04": "REFER",
+    "SUB-05": "PASS",
+    "SUB-06": "PASS",
+    "SUB-07": "PASS",
+    "DRV-01": "PASS",
+    "DRV-05": "PASS",
+    "DRV-06": "PASS",
+    "DRV-07": "PASS",
+    "DRV-08": "PASS",
+    "SEL-01": "PASS",
+    "SEL-02": "PASS",
+    "SEL-03": "NOT_EVALUATED",
+    "PRI-01": "REFER",
+    "PRI-02": "REFER",
+    "PRI-03": "REFER"
   },
   "decision": "REFER",
   "decision_if_operating_states_mode_decline": "DECLINE",
@@ -266,5 +290,15 @@
     "Loss history: 2 late-reported claims in 24-25 with an unreported driver (Kevin Brandt) and unreported unit (2021 Peterbilt)",
     "Volkov CDL downgrade notice 12/18/2024, three months after hire",
     "Q1 2026 IFTA penalty and interest"
-  ]
+  ],
+  "rules_why": {
+    "SUB-04": "AL loss runs: expiring 25-26 + 24-25 + 23-24 only; Lakeshore 03/08/2022-02/10/2023 has none",
+    "PRI-01": "3-year window from 10/22/2023: no coverage until 12/15/2023 (54 days)",
+    "PRI-02": "lapse 02/10/2023 -> 12/15/2023 (308 days), no explanation",
+    "PRI-03": "Lakeshore term listed on the quote has no loss run",
+    "COV-02": "APD quote requested; not available -> note for the agent (D-09)",
+    "DRV-06": "Whitfield 4 pts 06/07/2023 is outside 36 months; Morales 1 pt",
+    "SUB-05": "Q3'25-Q2'26 are the 4 quarters due by 10/22/2026 (Q3'26 due 10/31)",
+    "SEL-03": "no requested premium in the submission"
+  }
 }
