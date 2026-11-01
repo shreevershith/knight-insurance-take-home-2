@@ -1,5 +1,5 @@
-# docker compose up --build   ->  http://localhost:8000
-# Two containers: the app and Postgres 18 (D-33). Secrets come from .env (never baked into the image):
+# docker compose up --build   ->  http://localhost:8000  (app, worker, Postgres 18)
+# The web app enqueues jobs, workers run them (D-36), Postgres 18 holds both (D-33). Secrets come from .env (never baked into the image):
 # ANTHROPIC_API_KEY, and POSTGRES_PASSWORD for this container database.
 services:
   db:
@@ -20,10 +20,11 @@ services:
   app:
     build: .
     env_file: .env
-    environment:
+    environment: &app_env
       # overrides the host DATABASE_URL in .env: inside compose the database is the "db" service
       DATABASE_URL: postgresql+psycopg://knight:${POSTGRES_PASSWORD}@db:5432/knight
       DATA_DIR: /app/data
+      JOB_MODE: queue   # the web app only enqueues; the worker service runs the jobs (D-36)
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:
@@ -33,6 +34,23 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+
+  # Jobs from the queue, one at a time per worker; more workers = more submissions at once:
+  #   docker compose up -d --scale worker=3
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment: *app_env
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      disable: true   # no HTTP port; the Dockerfile's check is for the web app
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 30s
 
 volumes:
   pgdata:

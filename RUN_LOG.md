@@ -370,3 +370,15 @@ analyst was re-run on Opus for the sample (#7, $0.209) and held-out #2 (#6, $0.1
 form (`POST /submissions`) to the container app and processed end to end on the container's own database: **87/87,
 REFER, Small Fleet**, $0.217 (39 cache hits from the mounted `data/`, one new analyst call). 65 tests pass inside the
 container.
+
+### Parallel page calls and the job queue (QU1, 11/01)
+
+- **Parallel path, sample (local):** reprocessed with `LLM_CONCURRENCY=6`: **87/87**, 39 of 40 calls cache hits, one
+  analyst call $0.224.
+- **Queue in Docker** (app, 2 workers, Postgres 18): the two held-out emails uploaded at once; the job table showed one
+  RUNNING job per worker. One worker was killed (`docker kill`) mid-run. When its lease ran out (20:13:44), the other
+  worker logged "stopped renewing its lease; job taken over", re-ran the job (attempt 2) and finished it. Results:
+  Desert Ridge **72/72**, Bluestem **69/70**, $0.262 together (the killed attempt cost $0: all cache hits).
+- 71 tests pass, locally and inside the container.
+- The speed-up itself is not measured yet: these runs were mostly cache hits, so their time says nothing about model
+  wait. A run on an empty cache (about $0.62) would measure it.

@@ -3,13 +3,16 @@
 Each step writes a progress line (shown in the UI). A failure on one page marks that page
 (MODEL_ERROR / UNREADABLE) and the run continues; missing data then shows up as missing, never guessed.
 """
+import contextvars
 import traceback
-from datetime import datetime, timezone
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from app import config, conflicts, llm
 from app.classify import classify_page
-from app.db import Conflict, Document, Field, JobLog, Page, RuleResult, SessionLocal, Submission, audit
+from app.db import Conflict, Document, Field, Job, JobLog, Page, RuleResult, SessionLocal, Submission, audit
 from app.extract import evidence
 from app.extract.llm_extract import extract_page
 from app.extract.normalize import norm_id, normalize, parse_number, validate
@@ -35,8 +38,8 @@ def progress(db, sub: Submission, message: str, level: str = "INFO") -> None:
 
 def claim(submission_id: int) -> bool:
     """One active job per submission. An atomic conditional UPDATE (safe on SQLite and Postgres): only
-    the caller that flips the row to PROCESSING runs the job; a second click or worker gets False.
-    Production: the job table is claimed with SELECT ... FOR UPDATE SKIP LOCKED and a lease (D-25)."""
+    the caller that flips the row to PROCESSING runs (or enqueues) the job; a second click gets False.
+    In queue mode the job itself is then claimed by a worker with SKIP LOCKED and a lease (app/jobs.py)."""
     with SessionLocal() as db:
         n = (db.query(Submission).filter(Submission.id == submission_id, Submission.status != "PROCESSING")
              .update({"status": "PROCESSING", "step": "Queued"}, synchronize_session=False))
@@ -45,11 +48,13 @@ def claim(submission_id: int) -> bool:
 
 
 def reset_interrupted() -> int:
-    """At startup nothing is running yet, so a submission still PROCESSING was cut off by a restart.
-    It is marked INTERRUPTED (visible, with a log line) rather than left spinning forever.
-    Production: a worker lease that expires does this without a restart."""
+    """At web startup no in-process job is running yet, so a submission still PROCESSING without a queued
+    job was cut off by a restart. It is marked INTERRUPTED (visible, with a log line) rather than left
+    spinning forever. Submissions with a queue job (D-36) are left alone: the workers own those, and an
+    expired lease hands a cut-off job to another worker."""
     with SessionLocal() as db:
-        stuck = db.query(Submission).filter(Submission.status == "PROCESSING").all()
+        queued = db.query(Job.submission_id).filter(Job.status.in_(("QUEUED", "RUNNING")))
+        stuck = db.query(Submission).filter(Submission.status == "PROCESSING", Submission.id.notin_(queued)).all()
         for sub in stuck:
             sub.status = "INTERRUPTED"
             sub.step = "Interrupted by a restart: reprocess to continue"
@@ -80,20 +85,22 @@ def run(submission_id: int, claimed: bool = False) -> None:
                 progress(db, sub, f"{d.filename}: {d.status} {d.error or ''}".strip(), "WARN")
 
         pages = [p for d in sub.documents if d.status == "OK" for p in d.pages]
-        progress(db, sub, f"Classifying {len(pages)} pages by content")
-        for p in pages:
-            _classify(db, sub, p)
+        progress(db, sub, f"Classifying {len(pages)} pages by content ({config.LLM_CONCURRENCY} at a time)")
+        _classify_all(db, sub, pages)
         _inherit_continuations(sub)
         db.commit()
 
         progress(db, sub, "Extracting fields with evidence")
+        # The model calls run in parallel; keys, scoring and storage then run in page order, because
+        # entity keys carry over between pages of a document (a driver's MVR, an IFTA return's quarter).
+        prepared = _prepare_facts(sub, [d for d in sub.documents if d.status == "OK"])
         known_drivers: list[dict] = []
         for d in sub.documents:
             if d.status != "OK":
                 continue
             page_ctx = {"doc_id": d.id}
             for p in d.pages:
-                _extract(db, sub, d, p, page_ctx, known_drivers)
+                _extract(db, sub, d, p, page_ctx, known_drivers, prepared.get(p.id))
         db.commit()
 
         reapplied = reapply_human_decisions(db, sub.id)
@@ -203,16 +210,55 @@ def reapply_human_decisions(db, submission_id) -> int:
     return count
 
 
-def _classify(db, sub, page: Page):
-    ctx = {"submission_id": sub.id, "page_id": page.id}
-    try:
-        classify_page(page, ctx)
-        if page.status == "PENDING":
-            page.status = "OK"
-    except llm.LLMError as exc:
-        page.status, page.error = "MODEL_ERROR", str(exc)
-        progress(db, sub, f"{page.document.filename} p{page.page_no}: MODEL_ERROR ({exc})", "ERROR")
+# ---------------------------------------------------------------- parallel page calls (D-36)
+
+_PAGE_IN = ("id", "page_no", "label", "text", "text_source", "has_text_layer", "image_path", "doc_type",
+            "classify_method", "classify_confidence", "classify_reason", "status", "error")
+_CLASSIFIED = ("doc_type", "classify_confidence", "classify_reason", "classify_method", "status", "error",
+               "text", "text_source")
+
+
+def _snapshot(page: Page) -> SimpleNamespace:
+    """A plain copy of a page for a worker thread: threads never touch the ORM session or its objects."""
+    return SimpleNamespace(**{k: getattr(page, k) for k in _PAGE_IN})
+
+
+def _parallel(fn, items: list) -> list:
+    """fn(item) for each item, up to config.LLM_CONCURRENCY at a time, results in input order. Each call
+    runs in a copy of the caller's context, so the cost ledger keeps this job's run id. An LLMError is
+    returned as the result (a failed page is marked, the run goes on); any other error is raised."""
+    def call(item):
+        try:
+            return fn(item)
+        except llm.LLMError as exc:
+            return exc
+    if config.LLM_CONCURRENCY <= 1 or len(items) <= 1:
+        return [call(i) for i in items]
+    with ThreadPoolExecutor(max_workers=config.LLM_CONCURRENCY) as pool:
+        futures = [pool.submit(contextvars.copy_context().run, call, i) for i in items]
+        return [f.result() for f in futures]
+
+
+def _classify_all(db, sub, pages: list[Page]) -> None:
+    sub_id = sub.id
+
+    def work(snap):
+        classify_page(snap, {"submission_id": sub_id, "page_id": snap.id})
+        return snap
+    for page, result in zip(pages, _parallel(work, [_snapshot(p) for p in pages])):
+        _classify(db, sub, page, result)
+
+
+def _classify(db, sub, page: Page, result):
+    """Apply one page's classification: a classified snapshot, or the LLMError it raised."""
+    if isinstance(result, llm.LLMError):
+        page.status, page.error = "MODEL_ERROR", str(result)
+        progress(db, sub, f"{page.document.filename} p{page.page_no}: MODEL_ERROR ({result})", "ERROR")
         return
+    for k in _CLASSIFIED:
+        setattr(page, k, getattr(result, k))
+    if page.status == "PENDING":
+        page.status = "OK"
     if page.status == "UNREADABLE":
         progress(db, sub, f"{page.document.filename} p{page.page_no}: UNREADABLE ({page.error})", "WARN")
     elif page.doc_type in ("OTHER", "") or page.classify_confidence < 0.5:
@@ -240,32 +286,68 @@ def _inherit_in_document(doc):
             prev = p.doc_type
 
 
-def _extract(db, sub, doc: Document, page: Page, page_ctx: dict, known_drivers: list[dict]):
-    if page.status != "OK" or page.doc_type not in SPEC:
+def _extractable(page: Page) -> bool:
+    return page.status == "OK" and page.doc_type in SPEC
+
+
+def _in_page_order(page) -> bool:
+    """A scanned IFTA page is parsed in code with the header remembered from the page before it, so it
+    runs in page order (no model call unless the parse fails)."""
+    return page.doc_type == "IFTA_RETURN" and page.text_source == "vision_transcript"
+
+
+def _prepare_facts(sub, docs) -> dict:
+    """Page id -> _page_facts result (or the LLMError) for every extractable page, model calls in parallel."""
+    sub_id = sub.id
+    todo = [(p.id, _snapshot(p), d.blob_path) for d in docs for p in d.pages
+            if _extractable(p) and not _in_page_order(p)]
+
+    def work(item):
+        page_id, snap, blob = item
+        return _page_facts(snap, blob, {"submission_id": sub_id, "page_id": page_id, "doc_type": snap.doc_type})
+    return {page_id: result for (page_id, _, _), result in zip(todo, _parallel(work, todo))}
+
+
+def _page_facts(page, blob_path: str, ctx: dict, page_ctx: dict | None = None):
+    """One page's values: (facts, method, notes). No database access, so it is safe on a worker thread;
+    notes are progress lines for the caller to log. Raises llm.LLMError."""
+    notes: list[tuple[str, str]] = []
+    if page.text_source == "xlsx" and page.doc_type in TABULAR_TYPES:
+        facts = extract_sheet(config.data_path(blob_path), page.page_no - 1)
+        if facts:
+            return facts, "xlsx", notes
+        return extract_page(page, page.doc_type, False, ctx), "llm_text", notes
+    # The model produced these values (as transcript or extraction), so they get a model prior
+    # even when the page is a spreadsheet (D-21). "xlsx" means deterministic only.
+    method = "llm_vision" if page.text_source == "vision_transcript" else "llm_text"
+    if page_ctx is not None and _in_page_order(page):
+        facts = parse_ifta_page(page.text, page_ctx)  # D-31: table rows read by code
+        if facts:
+            notes.append(("IFTA table parsed in code", "INFO"))
+            return facts, method, notes
+    return _llm_extract(page, ctx, notes), method, notes
+
+
+def _extract(db, sub, doc: Document, page: Page, page_ctx: dict, known_drivers: list[dict], prepared=None):
+    """Store one page's values. prepared: its _page_facts result computed ahead (in parallel), or None to
+    compute it here, in page order."""
+    if not _extractable(page):
         if page.status == "OK":
             page.status = "SKIPPED"
         return
-    ctx = {"submission_id": sub.id, "page_id": page.id, "doc_type": page.doc_type}
-    try:
-        if page.text_source == "xlsx" and page.doc_type in TABULAR_TYPES:
-            facts, method = extract_sheet(config.data_path(doc.blob_path), page.page_no - 1), "xlsx"
-            if not facts:
-                facts, method = extract_page(page, page.doc_type, False, ctx), "llm_text"
-        else:
-            # The model produced these values (as transcript or extraction), so they get a model prior
-            # even when the page is a spreadsheet (D-21). "xlsx" means deterministic only.
-            method = "llm_vision" if page.text_source == "vision_transcript" else "llm_text"
-            facts = None
-            if page.doc_type == "IFTA_RETURN" and page.text_source == "vision_transcript":
-                facts = parse_ifta_page(page.text, page_ctx)  # D-31: table rows read by code
-                if facts:
-                    progress(db, sub, f"{doc.filename} p{page.page_no}: IFTA table parsed in code")
-            if not facts:
-                facts = _llm_extract(db, sub, doc, page, ctx)
-    except llm.LLMError as exc:
-        page.status, page.error = "MODEL_ERROR", str(exc)
-        progress(db, sub, f"{doc.filename} p{page.page_no}: extraction MODEL_ERROR ({exc})", "ERROR")
+    if prepared is None:
+        ctx = {"submission_id": sub.id, "page_id": page.id, "doc_type": page.doc_type}
+        try:
+            prepared = _page_facts(_snapshot(page), doc.blob_path, ctx, page_ctx)
+        except llm.LLMError as exc:
+            prepared = exc
+    if isinstance(prepared, llm.LLMError):
+        page.status, page.error = "MODEL_ERROR", str(prepared)
+        progress(db, sub, f"{doc.filename} p{page.page_no}: extraction MODEL_ERROR ({prepared})", "ERROR")
         return
+    facts, method, notes = prepared
+    for message, level in notes:
+        progress(db, sub, f"{doc.filename} p{page.page_no}: {message}", level)
 
     assign_keys(facts, page_ctx, known_drivers)
     low = 0
@@ -291,9 +373,10 @@ def _extract(db, sub, doc: Document, page: Page, page_ctx: dict, known_drivers: 
 KEY_FIELDS = {"LOSS_RUN": ("line", "policy_number"), "DRIVER_LICENSE": ("license_number",)}
 
 
-def _llm_extract(db, sub, doc, page, ctx):
+def _llm_extract(page, ctx, notes: list):
     """Extraction on the task's tier; one re-run on the escalation model if the result fails the code
-    checks (model error, or too many values whose excerpt isn't on the page)."""
+    checks (model error, no values, missing key fields, or too many values whose excerpt isn't on the
+    page). The escalation goes into `notes` for the caller to log."""
     use_image = (page.text_source == "vision_transcript" or page.doc_type in FORM_TYPES) and bool(page.image_path)
     cheap = config.route("extract")[0] != config.ESCALATION_MODEL
     try:
@@ -315,7 +398,7 @@ def _llm_extract(db, sub, doc, page, ctx):
             reason = f"{unverified}/{len(facts)} excerpts not found on the page"
         else:
             return facts
-    progress(db, sub, f"{doc.filename} p{page.page_no}: escalated to {config.ESCALATION_MODEL} ({reason})", "WARN")
+    notes.append((f"escalated to {config.ESCALATION_MODEL} ({reason})", "WARN"))
     return extract_page(page, page.doc_type, use_image, ctx, escalate=True, reason=reason)
 
 

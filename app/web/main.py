@@ -12,7 +12,7 @@ from urllib.parse import quote
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app import config, pipeline, review
+from app import config, jobs, pipeline, review
 from app.config import data_path
 from app.web.labels import entity_labels, label_for
 from app.db import (AuditEvent, Conflict, Document, Field, JobLog, Page, RuleResult, SessionLocal, Submission,
@@ -28,10 +28,15 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 REVIEWER = "underwriter@knight"  # prototype: no SSO; production uses the signed-in user (RBAC)
 
 
-def _start(submission_id: int, job=pipeline.run) -> None:
+def _start(submission_id: int, kind: str = "run") -> None:
+    """One active job per submission (409 otherwise). JOB_MODE=queue: a worker process runs it (D-36);
+    thread: this process does, in the background."""
     if not pipeline.claim(submission_id):
         raise HTTPException(409, "this submission is already being processed")
-    threading.Thread(target=job, args=(submission_id, True), daemon=True).start()
+    if config.JOB_MODE == "queue":
+        jobs.enqueue(submission_id, kind)
+    else:
+        threading.Thread(target=jobs.KINDS[kind], args=(submission_id, True), daemon=True).start()
 
 
 # Pipeline stages shown as a stepper; each starts with one of these progress messages.
@@ -165,7 +170,7 @@ def reprocess(sub_id: int):
 
 @app.post("/submissions/{sub_id}/rerun-analysis")
 def rerun_analysis(sub_id: int):
-    _start(sub_id, pipeline.run_analysis)
+    _start(sub_id, "analysis")
     with SessionLocal() as db:
         audit(db, sub_id, REVIEWER, "analysis.rerun", f"submission:{sub_id}")
         db.commit()

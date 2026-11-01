@@ -161,6 +161,25 @@ class JobLog(Base):
     message: Mapped[str] = mapped_column(Text)
 
 
+class Job(Base):
+    """A queued unit of work (D-36). The web app enqueues; a worker claims it with SELECT ... FOR UPDATE
+    SKIP LOCKED and holds it under a lease it keeps renewing (app/jobs.py)."""
+    __tablename__ = "job"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("submission.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # run | analysis
+    # QUEUED -> RUNNING -> DONE | FAILED (a failed attempt goes back to QUEUED until max_attempts)
+    status: Mapped[str] = mapped_column(String(20), default="QUEUED", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)  # retry backoff
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    worker: Mapped[str] = mapped_column(String(100), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
 

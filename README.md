@@ -40,11 +40,12 @@ Open http://localhost:8000 and drop an `.eml` (or the files) on the page.
 **With Docker** (Docker Desktop only; no other service): set `ANTHROPIC_API_KEY` and `POSTGRES_PASSWORD` in `.env`, then
 
 ```bash
-docker compose up --build -d          # app + Postgres 18 -> http://localhost:8000
+docker compose up --build -d          # app + worker + Postgres 18 -> http://localhost:8000
+docker compose up -d --scale worker=3 # more workers: more submissions at once
 docker compose exec app python -m pytest -q
 ```
 
-The app container uses its own Postgres (not exposed on the host). `data/` is mounted, so uploads, the LLM cache and the
+The web app only enqueues jobs; workers take them from a job table on the same Postgres (`SKIP LOCKED`, a renewed lease, retries; D-36), so no broker or cloud service is needed. The container Postgres is not exposed on the host. `data/` is mounted, so uploads, the LLM cache and the
 cost ledger are shared with local runs. `APP_PORT` picks another host port.
 
 - **Database:** SQLite under `data/` by default. For PostgreSQL, set `DATABASE_URL` in `.env`
@@ -57,7 +58,7 @@ cost ledger are shared with local runs. `APP_PORT` picks another host port.
 ## Tests and evaluation
 
 ```bash
-.venv/Scripts/python -m pytest -q                                           # 65 tests, no API calls
+.venv/Scripts/python -m pytest -q                                           # 71 tests, no API calls
 .venv/Scripts/python eval/run_eval.py                                       # the case-study sample
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/desert_ridge_expected.json
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/bluestem_expected.json
@@ -92,7 +93,7 @@ email ─► intake (zip, dedupe) ─► pages ─► classify (rules first, mod
 - **Guards that hold across all rules:** a value that couldn't be read is never reported as missing; a rule never
   passes on a low-confidence value; a decline needs cited evidence; a rule cites only the values it relies on.
 - **Built vs designed.** Built: a single process with background jobs, an atomic one-job-per-submission claim and
-  restart recovery, on PostgreSQL. Built: Docker (app + Postgres). Designed only: queue workers (SQS, `SKIP LOCKED` leases, retries), real
+  restart recovery, on PostgreSQL. Built: Docker (app + worker + Postgres); a database job queue with workers, leases and retries; page calls run in parallel within a job (`LLM_CONCURRENCY`, D-36). Designed only: SQS or a managed queue, autoscaling, real
   mailbox intake, SSO/RBAC, FMCSA/SAFER lookups. See PLAN.md §5a and D-25.
 
 ## Where things are
@@ -106,7 +107,7 @@ email ─► intake (zip, dedupe) ─► pages ─► classify (rules first, mod
 | `app/web/` | FastAPI app and templates |
 | `eval/` | Expected values, the eval runner, held-out submissions |
 | `PLAN.md` | Requirements checklist, the guideline as rules, ground truth, architecture, a claims check against the code |
-| `DECISIONS.md` | Every decision: what the spec said, the options, what was chosen and why (D-01 to D-35) |
+| `DECISIONS.md` | Every decision: what the spec said, the options, what was chosen and why (D-01 to D-36) |
 | `RUN_LOG.md` | Every real model run, its cost and eval score, and what changed because of it |
 
 ## Known limitations

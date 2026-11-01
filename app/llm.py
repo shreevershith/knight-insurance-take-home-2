@@ -8,6 +8,7 @@ import base64
 import contextvars
 import hashlib
 import json
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,9 +37,12 @@ def tier_for(task: str) -> str:
     return TIER_OF.get(task, "extract")  # extract_<doc type> tasks
 
 
+_ledger_lock = threading.Lock()
+
+
 def _ledger(**row) -> None:
     row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id.get(), **row}
-    with open(config.USAGE_LOG, "a", encoding="utf-8") as fh:
+    with _ledger_lock, open(config.USAGE_LOG, "a", encoding="utf-8") as fh:  # page calls run in parallel
         fh.write(json.dumps(row) + "\n")
 
 

@@ -105,8 +105,10 @@ def test_empty_cheap_extraction_is_escalated(db, monkeypatch):
         return [{"group": "lr", "entity_type": "loss_run", "index": 0, "field": "line", "value": "AUTO LIABILITY",
                  "excerpt": "AUTO LIABILITY"}] if escalate else []
     monkeypatch.setattr(pipeline, "extract_page", fake)
-    facts = pipeline._llm_extract(db, s, d, page, {})
+    notes = []
+    facts = pipeline._llm_extract(page, {}, notes)
     assert calls == [(False, ""), (True, "no values extracted")] and facts
+    assert notes and "no values extracted" in notes[0][0]
 
 
 def test_ifta_reread_keeps_the_continuation_page_and_human_decisions(db, monkeypatch):

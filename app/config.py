@@ -24,6 +24,17 @@ CLAUDE_MODEL = _env("CLAUDE_MODEL", "claude-opus-5-5")
 CLAUDE_EFFORT = _env("CLAUDE_EFFORT", "medium")
 CLAUDE_FALLBACKS = _env("CLAUDE_FALLBACKS", "default")
 LLM_TIMEOUT_SECONDS = float(_env("LLM_TIMEOUT_SECONDS", "180"))
+# Page calls of one job run this many at a time (D-36): a run is almost all model wait, one page at a
+# time. Bounded by the API rate limit, not by CPU. 1 = sequential.
+LLM_CONCURRENCY = max(1, int(_env("LLM_CONCURRENCY", "6")))
+
+# Jobs (D-36). "thread": the web process runs each job in a background thread (no worker needed).
+# "queue": the web app only enqueues; app/worker.py processes run them (docker-compose.yml).
+JOB_MODE = _env("JOB_MODE", "thread")
+JOB_LEASE_SECONDS = int(_env("JOB_LEASE_SECONDS", "120"))   # a worker renews it every third of this
+JOB_MAX_ATTEMPTS = int(_env("JOB_MAX_ATTEMPTS", "3"))
+JOB_RETRY_BACKOFF_SECONDS = int(_env("JOB_RETRY_BACKOFF_SECONDS", "30"))  # x attempt number
+WORKER_POLL_SECONDS = float(_env("WORKER_POLL_SECONDS", "2"))
 
 # Per-task model routing (D-31, measured $0.62/submission vs $2.37 on Opus everywhere). The model fits
 # how well code can check the task: classify/extract are verified against the page (cheap model),
