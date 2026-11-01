@@ -1,8 +1,9 @@
 {
+  "_changes": "11/01 (D-37): notes.docx expected OK and classified OTHER, was UNSUPPORTED. Word files are now read; this is a change in what the system handles, made after the first-run measurement (64/70), which stands.",
   "_note": "HELD-OUT set #2 (D-19, D-34). Written from scratch on 11/01/2026 AFTER the held-out #1 fixes, and run ONCE on unchanged code: this is a measurement. Expected values derived by hand from the guideline before the first run. Anchor date = application date 09/28/2026. New vs the sample and held-out #1: a zip with misleading names, a duplicate attachment, an unsupported .docx, the schedule as a PDF (not a spreadsheet), four IFTA returns in one PDF with one scanned page, Tennessee MVRs, a new-venture corporation.",
   "submission_subject": "Bluestem",
   "documents": {
-    "notes.docx": "UNSUPPORTED",
+    "notes.docx": "OK",
     "Application.pdf": "DUPLICATE"
   },
   "pages": {
@@ -10,7 +11,8 @@
     "schedule.pdf": "DRIVER_SCHEDULE",
     "MVRs.pdf": "MVR",
     "IFTA_returns_2025-2026.pdf": "IFTA_RETURN",
-    "Bluestem_App.pdf": "APPLICATION"
+    "Bluestem_App.pdf": "APPLICATION",
+    "notes.docx": "OTHER"
   },
   "fields": [
     {"entity": "applicant", "field": "business_name", "expect": "BLUESTEM HAULAGE INC"},

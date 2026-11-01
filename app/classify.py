@@ -90,6 +90,15 @@ CLASSIFY_SYSTEM = (
     "\nconfidence is 0-1. Give a one-sentence reason citing what on the page decided it."
 )
 
+# Text pages only (the vision prompt is unchanged, so scans aren't re-transcribed): OTHER is a catch-all,
+# so say what its confidence means. Without this a clearly-read agent note came back OTHER at 0.45 and was
+# treated as an unread page (D-37).
+CLASSIFY_TEXT_SYSTEM = (
+    CLASSIFY_SYSTEM +
+    "\nNotes, cover letters and other correspondence that contain none of the listed documents are OTHER. "
+    "For OTHER, confidence is how sure you are that the page contains none of the listed document types."
+)
+
 VISION_SYSTEM = (
     CLASSIFY_SYSTEM +
     "\n\nThe page is an image (scan or photo). Also produce `transcript`: a faithful plain-text "
@@ -117,7 +126,7 @@ def classify_page(page: Page, ctx: dict, escalate: bool = False, reason: str = "
             page.classify_method = "rules"
             return
         data = llm.structured_call(
-            task="classify_text", system=CLASSIFY_SYSTEM, schema=_CLASSIFY_SCHEMA, max_tokens=2000,
+            task="classify_text", system=CLASSIFY_TEXT_SYSTEM, schema=_CLASSIFY_SCHEMA, max_tokens=2000,
             content=[{"type": "text", "text": f"<page>\n{page.text[:20000]}\n</page>"}], ctx=ctx)
         page.doc_type, page.classify_confidence = data["doc_type"], float(data["confidence"])
         page.classify_reason, page.classify_method = data["reason"], "llm_text"

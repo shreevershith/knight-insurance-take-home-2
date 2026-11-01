@@ -8,6 +8,7 @@ import hashlib
 import io
 import mimetypes
 import zipfile
+from xml.etree import ElementTree
 from email import policy
 from pathlib import Path, PurePosixPath
 
@@ -126,6 +127,8 @@ def split_pages(db, doc: Document) -> None:
             _split_pdf(db, doc, path)
         elif suffix in (".xlsx", ".xlsm"):
             _split_xlsx(db, doc, path)
+        elif suffix == ".docx":
+            _split_docx(db, doc, path)
         elif suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
             db.add(Page(document_id=doc.id, page_no=1, image_path=stored_path(path), has_text_layer=False))
         else:
@@ -147,6 +150,51 @@ def _split_pdf(db, doc, path):
             db.add(Page(document_id=doc.id, page_no=i + 1, has_text_layer=has_text,
                         text=text if has_text else "", text_source="text_layer" if has_text else "",
                         image_path=stored_path(image_path)))
+
+
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+MAX_DOCX_XML = 20 * 1024 * 1024  # document.xml larger than this (a zip bomb, not a cover note) is refused
+
+
+def docx_text(path) -> str:
+    """A Word document's body as text, in reading order: one line per paragraph, one 'a | b | c' line per
+    table row (the convention the PDF and spreadsheet paths use). Read in code, no model. Headers,
+    footers and embedded images are not read."""
+    with zipfile.ZipFile(path) as z:
+        if z.getinfo("word/document.xml").file_size > MAX_DOCX_XML:
+            raise ValueError("word/document.xml is too large")
+        root = ElementTree.fromstring(z.read("word/document.xml"))
+
+    def para(p) -> str:
+        parts = []
+        for el in p.iter():
+            if el.tag == _W + "t":
+                parts.append(el.text or "")
+            elif el.tag == _W + "tab":
+                parts.append("\t")
+            elif el.tag in (_W + "br", _W + "cr"):
+                parts.append("\n")
+        return "".join(parts).strip()
+
+    lines = []
+    body = root.find(_W + "body")
+    for block in (body if body is not None else []):
+        if block.tag == _W + "p":
+            lines.append(para(block))
+        elif block.tag == _W + "tbl":
+            for row in block.iter(_W + "tr"):
+                cells = [" ".join(t for t in (para(p) for p in cell.iter(_W + "p")) if t) for cell in row.iter(_W + "tc")]
+                if any(cells):
+                    lines.append(" | ".join(cells))
+    return "\n".join(line for line in lines if line)
+
+
+def _split_docx(db, doc, path):
+    text = docx_text(path)
+    if not text.strip():
+        doc.status, doc.error = "UNSUPPORTED", "Word file has no text (images only are not read from .docx)"
+        return
+    db.add(Page(document_id=doc.id, page_no=1, has_text_layer=True, text=text, text_source="text_layer"))
 
 
 def cell_text(cell, cached) -> str:

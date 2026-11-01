@@ -74,6 +74,9 @@ def run(submission_id: int, claimed: bool = False) -> None:
     try:
         reset_for_reprocess(db, sub)
         progress(db, sub, "Splitting files into pages")
+        for d in sub.documents:
+            if d.status == "UNSUPPORTED" and d.error.startswith("unsupported file type") and not d.pages:
+                d.status, d.error = "OK", ""  # a format added since the last run (e.g. .docx) is tried again
         docs = [d for d in sub.documents if d.status == "OK"]
         for d in docs:
             if not d.pages:
@@ -261,8 +264,11 @@ def _classify(db, sub, page: Page, result):
         page.status = "OK"
     if page.status == "UNREADABLE":
         progress(db, sub, f"{page.document.filename} p{page.page_no}: UNREADABLE ({page.error})", "WARN")
-    elif page.doc_type in ("OTHER", "") or page.classify_confidence < 0.5:
+    elif not page.doc_type or page.classify_confidence < 0.5:
+        # type unknown: the page might be an application or loss run we failed to read, so rules treat it as unread
         page.status = "UNCLASSIFIED"
+    # A page confidently classified OTHER (an agent's cover note) was read: it holds nothing the guideline
+    # asks for. It stays OK and extraction skips it, so it can't turn "missing" into "could not be read".
     progress(db, sub, f"{page.document.filename} p{page.page_no}{' [' + page.label + ']' if page.label else ''}"
                       f" -> {page.doc_type} ({page.classify_method}, {page.classify_confidence:.2f})")
 

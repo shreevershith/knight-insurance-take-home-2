@@ -10,7 +10,8 @@ decision, the reasons, and an AI-written summary they can check.
 
 ## What it does
 
-- **Intake:** an `.eml` (or loose files). Zips are unpacked, duplicates caught by hash, unsupported files flagged.
+- **Intake:** an `.eml` (or loose files): PDF, XLSX, Word (`.docx`), images, zips. Zips are unpacked, duplicates
+  caught by hash, anything else flagged UNSUPPORTED with the reason.
 - **Classification by content, not file name.** `scan001.pdf` that is really a loss run is read as a loss run.
 - **Extraction with evidence.** Each value keeps its excerpt, source page and a confidence. Code checks that the
   excerpt is really on the page and contains the value. Scans and photos are transcribed first, then read the same way.
@@ -60,7 +61,7 @@ cost ledger are shared with local runs. `APP_PORT` picks another host port.
 ## Tests and evaluation
 
 ```bash
-.venv/Scripts/python -m pytest -q                                           # 72 tests, no API calls
+.venv/Scripts/python -m pytest -q                                           # 75 tests, no API calls
 .venv/Scripts/python eval/run_eval.py                                       # the case-study sample
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/desert_ridge_expected.json
 .venv/Scripts/python eval/run_eval.py --expected eval/heldout/bluestem_expected.json
@@ -70,7 +71,7 @@ cost ledger are shared with local runs. `APP_PORT` picks another host port.
 |---|---|---|---|
 | Sample (Cobalt Mesa, CA) | The case-study submission. The system was built against it, so this is a **regression check**, not an accuracy measure | n/a | **87/87** |
 | Held-out #1 (Desert Ridge, AZ) | Written from scratch after the build: other carriers, a phone-photo loss run, an image-only IFTA scan, a corrupt PDF, a different roster layout | **49/72** | 72/72 |
-| Held-out #2 (Bluestem, TN) | Written after the #1 fixes and run once on unchanged code: a zip with misleading names, a duplicate, a `.docx`, a PDF schedule, four IFTA returns in one PDF | **64/70** | 69/70 |
+| Held-out #2 (Bluestem, TN) | Written after the #1 fixes and run once on unchanged code: a zip with misleading names, a duplicate, a `.docx`, a PDF schedule, four IFTA returns in one PDF | **64/70** | 70/71 |
 
 **The first-run numbers are the real measurements.** Both held-out sets were then used to fix general causes, so their
 current scores are regression results. On both unseen submissions **every miss went toward "refer"**: nothing was
@@ -109,7 +110,7 @@ email ─► intake (zip, dedupe) ─► pages ─► classify (rules first, mod
 | `app/web/` | FastAPI app and templates |
 | `eval/` | Expected values, the eval runner, held-out submissions |
 | `PLAN.md` | Requirements checklist, the guideline as rules, ground truth, architecture, a claims check against the code |
-| `DECISIONS.md` | Every decision: what the spec said, the options, what was chosen and why (D-01 to D-36) |
+| `DECISIONS.md` | Every decision: what the spec said, the options, what was chosen and why (D-01 to D-37) |
 | `RUN_LOG.md` | Every real model run, its cost and eval score, and what changed because of it |
 
 ## Known limitations

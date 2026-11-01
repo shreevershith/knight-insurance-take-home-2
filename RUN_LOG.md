@@ -414,3 +414,15 @@ Maria Lopez, DOB 04/12/1998, CDL Class A, CA license B4419027, hired 9/2026, 6 y
   (0.75): a handwritten photo can't be confirmed by code, so the guard turns rules that rely on them into "needs review".
 - Decision REFER: the AI summary says the package holds only this note and lists what's missing. Cost **$0.068**
   (3 calls: transcription, extraction, analyst).
+
+### Word files read (DX1, 11/01)
+
+Held-out #2's `notes.docx` ("Agent notes: insured is growing fast, wants quote by 10/15") is now read at intake
+(D-37). First reprocess: read, classified OTHER at **0.45**, so it was marked UNCLASSIFIED and PRI-03 said "some
+loss-run pages could not be read" instead of REFER (69/71). Cause: the classifier was never told what confidence means
+for the catch-all type. After clarifying it (text classifier only): **OTHER at 0.90**, page read and skipped (nothing
+to extract), PRI-03 REFER again.
+
+All three re-run in Docker through the queue (2 workers): sample **87/87**, held-out #1 **72/72**, held-out #2
+**70/71** (the remaining miss is the `mailing_state` field, as before). Cost $0.48 for the three: the text-classification
+calls were new because the prompt changed (Haiku), the scans reused their saved transcriptions, plus the analyst.
