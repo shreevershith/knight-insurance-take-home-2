@@ -22,6 +22,7 @@ Raw outputs of each experiment are in `eval/experiments/`.
 | D1 | 11/01 04:45 | `8c030f1` | **Defaults, no overrides**, after D-31 was decided (per-task mix in `TIER_DEFAULTS`) | 7 new + 33 cached (4 escalations, from cache) | ~90 s | $0.21 (mostly the analyst) | **63/63** | Confirms the app uses the mix by default: classify/extract Haiku, transcribe Sonnet, analyst Opus |
 | B3 | 11/01 04:57 / 04:58 | Block 3 commit | Defaults, through the **web app**: upload → double-start refused (409) → eval → field override → "OUT OF DATE" → rerun analysis | 1 + 1 (analyst) | ~90 s + ~60 s | $0.43 | **63/63** | Block 3 behaviour verified end to end; new rows store relative paths |
 | PG1 | 11/01 07:37 | this commit | Defaults, on **PostgreSQL 18** (fresh database, D-33) | 1 new (analyst) + 39 cached | ~90 s | $0.21 | **87/87** | Same results as SQLite; web routes, overrides and job claim checked on Postgres |
+| **HO1** | 11/01 08:01 | `3d9e2df` + held-out files | **Held-out submission** (Desert Ridge Freight, written from scratch after the build; D-19, D-13). Defaults, unchanged code | 26 (0 cached, 0 escalated) | ~2.5 min | **$0.18** | **49/72** | First real measurement on unseen input. Decision REFER instead of DECLINE: the DUI never reached DRV-07 (see below) |
 
 ## Run 1: first real run (baseline)
 
@@ -227,3 +228,43 @@ Every stored transcript from all four models (28 table pages) was replayed throu
 ## Decision (11/01)
 
 The user approved the per-task mix as the default. D-31 is now DECIDED and implemented in `app/config.py` (`TIER_DEFAULTS`). To compare against Opus everywhere, set `LLM_MODEL_<TIER>=claude-opus-5-5`.
+
+## Held-out measurement (HO1, 11/01)
+
+**Why:** every number above is a regression check on the sample the system was built against (D-19). This is the
+first run on a submission written from scratch afterwards and never used to tune the code. It is a fictitious Arizona
+carrier: loose attachments with misleading names, other carriers' loss runs (one as a tilted, blurred phone photo),
+Arizona IFTA returns (one an image-only scan with abbreviated headers), a corrupt PDF, and a roster spreadsheet with
+different headers. Expected values were written by hand **before** the first run (`eval/heldout/desert_ridge_expected.json`);
+the generator is `scripts/make_heldout.py`.
+
+**Result: 49/72. Decision REFER, expected DECLINE.** It cost $0.18 for 26 calls.
+
+**What generalized:**
+- every page classified correctly by content, including `scan001.pdf` → loss run and the photo → loss run;
+- the corrupt PDF became UNREADABLE with its error shown;
+- FEIN, DOT, MC, dates and coverage answers were read correctly;
+- all three IFTA totals were right, including the scan with abbreviated headers, and the box-truck VIN check passed;
+- the DUI was read correctly from the MVR (02/14/2024, 8 points);
+- the commodity list was recognized as complete (60 + 25 + 15).
+
+**What broke (4 root causes, all generality gaps, no flaw in the expected file):**
+
+1. **Roster headers.** "Driver Name" and "CDL #" are not in the spreadsheet parser's header list, so the three driver rows
+   became loose notes. With no driver schedule, SUB-06, SUB-07 and DRV-01..08 failed or were not evaluated, the DUI
+   never reached DRV-07 (**a missed DECLINE**), and the DOB mismatch was never compared. The general flaw: when the
+   deterministic parser recognizes no key columns, it gives up silently instead of falling back to the model extractor.
+2. **Loss-run line not normalized.** The line of business went into the entity key as printed ("COMMERCIAL AUTO LIABILITY",
+   "AUTO LIABILITY (AL)") instead of AL, so SUB-04 counted 0 prior AL years instead of 3.
+3. **"Body Type" not mapped** to vehicle type, so the box truck was never seen and SEL-02 passed instead of referring.
+4. **Prior insurance on an application.** The catalogue expects a prior-insurance table only on a quote form (as in the
+   sample), so the application's table was not extracted. PRI-01..03 then relied on loss-run terms, one of them from the
+   photo. Photo values start below the review threshold by design, and with nothing to confirm them the C4 guard
+   correctly refused to PASS.
+
+**Direction of every error: toward REFER, never toward a wrong PASS or a wrong DECLINE.** The guards (unread ≠ missing,
+low confidence never passes, a decline needs cited evidence) held on unseen input. The cost of the gaps is a missed
+decline routed to a person, not a bad account bound.
+
+**Honesty note:** once these gaps are fixed using this file, it is no longer a clean held-out set. 49/72 stays the
+measurement; a re-run after fixes is a regression check on it, and a new measurement needs a second held-out submission.

@@ -1,0 +1,71 @@
+{
+  "_note": "HELD-OUT set (D-19). A fictitious submission written from scratch on 11/01/2026, AFTER the system was built, and never used to tune it. Expected values were derived by hand from the guideline and from scripts/make_heldout.py BEFORE the first run. Anchor date = application date 10/15/2026. Unlike the sample (a regression check), this measures generalization: new layouts, header names, carriers, an Arizona IFTA format, a phone photo, a scan with abbreviated headers and a corrupt file.",
+  "submission_subject": "Desert Ridge Freight",
+  "documents": {
+    "Supplemental_Questionnaire.pdf": "UNREADABLE"
+  },
+  "pages": {
+    "scan001.pdf": "LOSS_RUN",
+    "IMG_4471.jpg": "LOSS_RUN",
+    "fuel_tax_Q1.pdf": "IFTA_RETURN",
+    "Driver_Reports.pdf": "MVR",
+    "Application_DesertRidge.pdf": "APPLICATION",
+    "Driver_Vehicle_Roster.xlsx": "DRIVER_SCHEDULE"
+  },
+  "fields": [
+    {"entity": "applicant", "field": "business_name", "expect": "DESERT RIDGE FREIGHT LLC"},
+    {"entity": "applicant", "field": "fein", "expect": "86-4417203"},
+    {"entity": "applicant", "field": "dot_number", "expect": "3318842"},
+    {"entity": "applicant", "field": "mc_number", "expect": "1129087"},
+    {"entity": "applicant", "field": "mailing_state", "expect": "AZ"},
+    {"entity": "applicant", "field": "application_date", "expect": "2026-10-15"},
+    {"entity": "applicant", "field": "effective_date", "expect": "2026-11-20"},
+    {"entity": "coverage", "field": "apd_requested", "expect": false},
+    {"entity": "operations", "field": "hazmat", "expect": false},
+    {"entity": "driver:D07739120", "field": "dob", "doc_types": ["MVR"], "expect": "1990-12-02"},
+    {"entity": "driver:D09921844", "field": "dob", "doc_types": ["MVR"], "expect": "2001-07-09", "why": "MVR"},
+    {"entity": "driver:D09921844", "field": "dob", "doc_types": ["DRIVER_SCHEDULE"], "expect": "2001-07-19", "why": "roster (planted mismatch)"},
+    {"entity": "loss_run:AL:SMA224471", "field": "run_date", "expect": "2026-08-01", "why": "75 days before the application: stale"},
+    {"entity": "loss_run:AL:MSP240088", "field": "total_incurred", "expect": 8400, "why": "read from the phone photo"},
+    {"entity": "ifta:2025-12-31", "field": "total_miles", "expect": 85500},
+    {"entity": "ifta:2026-03-31", "field": "total_miles", "expect": 84000, "why": "scanned page with abbreviated headers"},
+    {"entity": "ifta:2026-06-30", "field": "total_miles", "expect": 90000}
+  ],
+  "derived": {
+    "cdl_years": {"RAMOS": 18.4, "WHITAKER": 12.7, "FERNANDEZ": 3.6}
+  },
+  "rules": {
+    "APP-01": "REFER", "APP-02": "PASS", "APP-03": "PASS",
+    "COV-01": "PASS", "COV-02": "PASS", "NV-01": "PASS", "NV-02": "PASS",
+    "ST-01": "PASS", "ST-02": "NOT_EVALUATED", "ST-03": "PASS", "ST-04": "REFER",
+    "SUB-01": "PASS", "SUB-02": "PASS", "SUB-03": "REFER", "SUB-04": "PASS", "SUB-05": "REFER",
+    "SUB-06": "PASS", "SUB-07": "PASS", "SUB-08": "PASS",
+    "DRV-01": "PASS", "DRV-02": "PASS", "DRV-03": "PASS", "DRV-04": "PASS", "DRV-05": "PASS",
+    "DRV-06": "REFER", "DRV-07": "DECLINE", "DRV-08": "PASS",
+    "PRO-01": "PASS", "PRO-02": "PASS", "PRO-03": "NOT_EVALUATED", "PRO-05": "NOT_EVALUATED",
+    "PRO-06": "PASS", "PRO-07": "PASS", "PRO-08": "PASS",
+    "SEL-01": "PASS", "SEL-02": "REFER", "SEL-03": "NOT_EVALUATED",
+    "PRI-01": "PASS", "PRI-02": "PASS", "PRI-03": "PASS",
+    "CONFLICTS": "REFER", "RTE-01": "FLAG"
+  },
+  "rules_why": {
+    "APP-01": "unit 3 is a 2020 Isuzu NPR box truck, not a tractor",
+    "SEL-02": "the box truck triggers the $250,000 minimum premium (AMB-1: not a decline)",
+    "ST-04": "IFTA miles in NM, NV, CO, OK (not available states)",
+    "ST-02": "Texas miles every quarter; north of I-10 not determinable",
+    "SUB-03": "Saguaro loss runs valued 08/01/2026, 75 days before the application",
+    "SUB-04": "AL: expiring 25-26 + 24-25, 23-24, 22-23 (Mesa photo + Saguaro PDF)",
+    "SUB-05": "Q3 2025 return missing (Q4'25, Q1'26, Q2'26 present)",
+    "DRV-06": "Whitaker: DUI 02/14/2024 with 8 points, inside 36 months (outside 12)",
+    "DRV-07": "Whitaker: DUI 02/14/2024, inside 5 years -> DECLINE",
+    "DRV-04": "Fernandez is 25",
+    "PRO-02": "commodities 60 + 25 + 15 = 100%",
+    "CONFLICTS": "Fernandez DOB 07/19/2001 (roster) vs 07/09/2001 (MVR)",
+    "RTE-01": "3 power units -> Small Fleet"
+  },
+  "decision": "DECLINE",
+  "team": "Small Fleet",
+  "conflicts": [
+    {"entity": "driver:D09921844", "field": "dob", "why": "07/19/2001 roster vs 07/09/2001 MVR"}
+  ]
+}

@@ -1,4 +1,4 @@
-"""Ingest the sample .eml and run the full pipeline synchronously (CLI check, no web server)."""
+"""Ingest an .eml (default: the sample) and run the full pipeline synchronously (CLI check, no web server)."""
 import sys
 from pathlib import Path
 
@@ -16,7 +16,8 @@ def main() -> None:
     setup_logging("WARNING")
     init_db()
     with SessionLocal() as db:
-        sub = ingest_eml(db, EML.read_bytes())
+        eml = Path(sys.argv[1]) if len(sys.argv) > 1 else EML  # e.g. eval/heldout/desert_ridge.eml
+        sub = ingest_eml(db, eml.read_bytes())
         db.commit()
         sub_id = sub.id
     pipeline.run(sub_id)
