@@ -108,6 +108,8 @@ def _summary_blocks(text: str) -> list[tuple[str, object]]:
 
 templates.env.filters["summary_blocks"] = _summary_blocks
 templates.env.globals["label_for"] = label_for
+templates.env.globals["model_chip"] = lambda: " · ".join(
+    f"{t} {config.route(t)[0].replace('claude-', '').split('-')[0].capitalize()}" for t in config.TIERS)
 
 
 def _back(url: str, message: str, anchor: str = "") -> RedirectResponse:
@@ -191,6 +193,8 @@ def show(request: Request, sub_id: int):
             "sub": sub, "docs": docs, "logs": logs, "entities": dict(entities), "conflicts": conflicts,
             "rules": rules, "audits": audits, "replaced": replaced, "field_by_id": field_by_id, "pages": pages,
             "running": sub.status in ("RECEIVED", "PROCESSING"), "stages": STAGES, "stage": _stage(logs),
+            "run_started": next((entry.at.replace(tzinfo=None).isoformat() + "Z" for entry in reversed(logs)  # stored as UTC
+                                 if entry.message.startswith("=== New run")), ""),
             "low_confidence": sum(f.status == "LOW_CONFIDENCE" for f in fields),
             "value_groups": value_groups, "ifta_rows": ifta_rows, "names": names,
             "ifta_columns": IFTA_COLUMNS,

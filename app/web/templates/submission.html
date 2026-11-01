@@ -6,533 +6,507 @@
 {% set outcome_order = ['DECLINE', 'ERROR', 'REFER', 'NOT_EVALUATED', 'FLAG', 'PASS'] %}
 {% set failing = rules|selectattr('outcome', 'in', ['DECLINE', 'ERROR', 'REFER'])|list %}
 {% set not_eval = rules|selectattr('outcome', 'equalto', 'NOT_EVALUATED')|list %}
+{% set passed = rules|selectattr('outcome', 'equalto', 'PASS')|list %}
+{% set todo = failing|length + not_eval|length + open_conflicts|length %}
 {% set headline = {'REFER': 'Refer to underwriter', 'DECLINE': 'Decline', 'READY_TO_QUOTE': 'Ready to quote', 'PASS': 'Ready to quote'} %}
-{% macro ev_attrs(f) -%}data-evidence data-id="{{ f.id }}" data-running="{{ 1 if running else 0 }}"{%- endmacro %}
-{% macro meter(c) -%}
-  <span class="meter"><span class="meter-track"><span class="meter-fill {{ '' if c >= 0.85 else ('lo' if c >= 0.6 else 'vlo') }}"
-    style="width:{{ (c * 100)|round|int }}%"></span></span><span class="small mono">{{ '%.2f'|format(c) }}</span></span>
-{%- endmacro %}
+{% set bad_pages = [] %}{% for d in docs %}{% for p in d.pages if p.status in ('MODEL_ERROR', 'UNREADABLE') %}{% set _ = bad_pages.append((d, p)) %}{% endfor %}{% endfor %}
 {% macro cite(e) -%}
   {%- if e[:1] == 'F' and e[1:].isdigit() and field_by_id.get(e[1:]|int) -%}
-    {%- set f = field_by_id.get(e[1:]|int) -%}<a class="chip" href="#{{ e }}" title="{{ label_for(f.entity_key, names) }} · {{ e }}">{{ f.name|replace('_', ' ') }}</a>
+    {%- set f = field_by_id.get(e[1:]|int) -%}<a class="chip" href="#{{ e }}" title="{{ label_for(f.entity_key, names) }}">{{ f.name|replace('_', ' ') }}</a>
   {%- else -%}<a class="chip" href="#{{ e }}">{{ e }}</a>{%- endif -%}
+{%- endmacro %}
+{% macro src(f) -%}
+  {%- set p = pages.get(f.page_id) if f.page_id else None -%}
+  {%- if p %}<b>{{ p.document.filename }}</b> · page {{ p.page_no }}{% if p.label %} ({{ p.label }}){% endif %}{% else %}<b>Human decision</b>{% endif %}
 {%- endmacro %}
 
 {% block head %}
 <style>
-  main { max-width:none; padding:0; }
-  .layout { display:grid; grid-template-columns:300px minmax(0, 1fr); min-height:calc(100vh - 57px); }
-  /* dossier rail */
-  .rail { position:sticky; top:57px; align-self:start; height:calc(100vh - 57px); overflow:auto; background:var(--surface);
-          border-right:1px solid var(--line); padding:20px; display:flex; flex-direction:column; gap:20px; }
-  .rail-head { display:flex; justify-content:space-between; align-items:baseline; padding-bottom:8px; border-bottom:1px solid var(--line); }
-  .ledger { border:1px solid var(--line); background:var(--bg); }
-  .ledger > div { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); font:400 11.5px/1.4 var(--mono); }
-  .ledger > div:last-child { border-bottom:0; }
-  .ledger .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink-2); }
-  .ledger .dot { width:6px; height:6px; border-radius:50%; flex:none; background:var(--good-fg); }
-  .ledger .dot.bad { background:var(--bad-fg); } .ledger .dot.mute { background:var(--faint); }
-  .vsteps { list-style:none; margin:0; padding:0; border-left:1px solid var(--line-strong); }
-  .vsteps li { position:relative; padding:3px 0 9px 16px; color:var(--faint); font-size:12.5px; transition:color .3s; }
-  .vsteps li::before { content:""; position:absolute; left:-4px; top:8px; width:7px; height:7px; background:var(--bg);
-                       border:1px solid var(--line-strong); transition:background .3s, border-color .3s; }
-  .vsteps li.done { color:var(--ink-2); } .vsteps li.done::before { background:var(--good-fg); border-color:var(--good-fg); }
-  .vsteps li.active { color:var(--ink); font-weight:600; }
-  .vsteps li.active::before { background:var(--ink-2); border-color:var(--ink-2); animation:blink 1s ease-in-out infinite; }
-  .rail-actions { margin-top:auto; display:grid; gap:8px; padding-top:16px; border-top:1px solid var(--line); }
-  .rail-actions form, .rail-actions button { width:100%; } .rail-actions button { justify-content:center; padding:10px; }
-  .log { font:400 11px/1.5 var(--mono); max-height:200px; overflow:auto; background:#1C1917; color:#d6d0c2; padding:8px 10px; margin-top:8px; }
-  .log div { animation:rise .3s var(--ease) both; } .log .t { color:#8c8a84; margin-right:6px; }
-  .log .ERROR { color:#fca5a5; } .log .WARN { color:#fcd34d; }
+/* sub-navigation */
+.subnav { position: sticky; top: 53px; z-index: 5; background: var(--bg); display: flex; gap: 22px; padding: 10px 0; border-bottom: 1px solid var(--line);
+          margin-bottom: -24px; overflow-x: auto; scrollbar-width: none; }
+.subnav a { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 550; white-space: nowrap; transition: color .15s; }
+.subnav a:hover, .subnav a.on { color: var(--ink); }
+.subnav .cnt { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: var(--r); background: var(--flag-bg); color: var(--flag); font-size: 11px; text-align: center; }
+.subnav .cnt.u { background: var(--unk-bg); color: var(--unk); }
 
-  /* content column */
-  .tabs { position:sticky; top:57px; z-index:30; display:flex; overflow-x:auto; scrollbar-width:none; background:var(--bg);
-          border-bottom:1px solid var(--line); padding:0 24px; height:44px; }
-  .tabs a { display:inline-flex; align-items:center; padding:0 12px; color:var(--muted); text-decoration:none; white-space:nowrap;
-            border-bottom:2px solid transparent; transition:color .2s, border-color .25s, background .2s; }
-  .tabs a:hover { color:var(--ink); }
-  .tabs a.on { color:var(--ink); font-weight:500; border-bottom-color:var(--ink-2); background:var(--surface); }
-  .tabs .n { margin-left:5px; color:var(--faint); font-size:11px; }
-  .content { max-width:1200px; margin:0 auto; padding:28px 24px 96px; display:flex; flex-direction:column; gap:36px; }
-  section.anchor { scroll-margin-top:110px; }
-  .sec-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+/* packet column */
+.side .meta { font-size: 12.5px; color: var(--muted); margin: -8px 0 16px; line-height: 1.5; }
+.files li .pg { font: 11.5px/1 var(--mono); color: var(--faint); }
 
-  /* status header */
-  .status { padding-bottom:28px; border-bottom:1px solid var(--line); display:flex; flex-direction:column; gap:18px; }
-  .status-line { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .status-line .sep { width:3px; height:3px; border-radius:50%; background:var(--faint); }
-  .title-row { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-  .title-row .co { font:italic 400 20px/1.3 var(--serif); color:var(--muted); }
-  .metrics { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); border:1px solid var(--line); }
-  .metric { padding:16px 18px; border-right:1px solid var(--line); text-decoration:none; color:inherit; transition:background .2s; display:block; }
-  .metric:last-child { border-right:0; } .metric:hover { background:var(--surface); }
-  .metric .big { display:flex; align-items:baseline; gap:6px; padding:8px 0 2px; }
-  .metric .num { font:400 36px/1 var(--serif); letter-spacing:-.02em; color:var(--ink); }
-  .metric .unit { font:600 11px/1 var(--sans); text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
-  .metric .note { color:var(--muted); font-size:12px; }
-  .metric.bad .num, .metric.bad .unit { color:var(--bad-fg); } .metric.bad { background:color-mix(in srgb, var(--bad-bg) 50%, transparent); }
-  .metric.warn .num, .metric.warn .unit { color:var(--warn-fg); } .metric.warn { background:color-mix(in srgb, var(--warn-bg) 50%, transparent); }
-  .metric.violet .num, .metric.violet .unit { color:var(--violet-fg); } .metric.good .num, .metric.good .unit { color:var(--good-fg); }
-  .ribbon { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; padding-top:12px; border-top:1px solid var(--line);
-            color:var(--muted); font-size:12px; }
-  .ribbon i { font-family:var(--serif); font-size:14px; color:var(--ink-2); }
-  /* mid-run: say so, and dim what is still being rebuilt */
-  .running-note { position:relative; overflow:hidden; display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 14px;
-                  border:1px solid var(--info-line); background:var(--info-bg); color:var(--ink-2); }
-  .running-note .sweep { position:absolute; left:0; bottom:0; height:2px; width:30%; background:var(--info-fg); animation:sweep 1.6s var(--ease) infinite; }
-  @keyframes sweep { from { transform:translateX(-100%); } to { transform:translateX(340%); } }
-  .is-running .metrics, .is-running .ribbon, .is-running > section:not(#overview) { opacity:.38; filter:grayscale(1);
-                  pointer-events:none; transition:opacity .4s, filter .4s; }
+/* processing */
+.processing { padding: 40px 0; display: flex; gap: 16px; align-items: flex-start; }
+.processing h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; }
+.processing p { color: var(--muted); margin: 6px 0 0; }
+.spinner { width: 20px; height: 20px; border: 2px solid var(--line-2); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; flex: none; margin-top: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.pipe { list-style: none; margin: 22px 0 0; padding: 0; border: 1px solid var(--line); background: var(--surface); max-width: 660px; position: relative; overflow: hidden; }
+.pipe::before { content: ""; position: absolute; left: 0; top: 0; height: 2px; width: 30%; background: var(--ink); animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { from { left: -30%; } to { left: 100%; } }
+.pipe li { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 13.5px; color: var(--muted); transition: color .3s, background .3s; }
+.pipe li:last-child { border-bottom: 0; }
+.pipe .no { font: 500 11.5px/1.7 var(--mono); color: var(--faint); }
+.pipe li.done { color: var(--ink-2); } .pipe li.done .no { color: var(--pass); }
+.pipe li.active { color: var(--ink); background: var(--hover); font-weight: 550; }
+.pipe .who { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); align-self: center; }
+.pipe .who.llm { color: var(--ovr); }
+.elapsed { font: 500 12px/1 var(--mono); color: var(--muted); margin-top: 10px; }
+.log { font: 11.5px/1.55 var(--mono); max-height: 180px; overflow: auto; margin-top: 12px; padding: 8px 10px; background: var(--well); border: 1px solid var(--line); color: var(--ink-2); max-width: 660px; }
+.log .ERROR { color: var(--flag); } .log .WARN { color: var(--unk); }
 
-  /* action items */
-  .actions-list { border:1px solid var(--line); }
-  .act { display:grid; grid-template-columns:64px minmax(0, 1fr) auto; gap:14px; align-items:center; padding:11px 14px;
-         border-bottom:1px solid var(--line); transition:background .2s, box-shadow .2s; }
-  .act:last-child { border-bottom:0; }
-  .act:hover { background:var(--surface); box-shadow:inset 2px 0 0 var(--ink-2); }
-  .act.bad { box-shadow:inset 2px 0 0 var(--bad-fg); } .act .what { font-weight:500; color:var(--ink); }
-  .act-group { margin-bottom:10px; }
-  .act-group > summary { display:flex; align-items:center; gap:10px; padding:8px 2px; flex-wrap:wrap; }
-  .act-group .g-count { font:400 20px/1 var(--serif); color:var(--ink); }
-  .act-group .g-note { color:var(--muted); font-size:12px; }
-  .act .rid { font-size:11.5px; color:var(--ink-2); font-weight:500; }
-  .act .why { font:400 11.5px/1.5 var(--mono); color:var(--muted); margin-top:2px; display:-webkit-box; -webkit-box-orient:vertical;
-              -webkit-line-clamp:2; overflow:hidden; }
+/* status */
+.status { display: grid; gap: 18px; padding-top: 8px; }
+.status-top { display: flex; align-items: flex-end; gap: 16px 32px; flex-wrap: wrap; justify-content: space-between; }
+.status h1 { font-family: var(--serif); font-weight: 500; font-size: 46px; line-height: 1.02; letter-spacing: -0.03em; margin-top: 8px; }
+.status.st-DECLINE h1 { color: var(--flag); } .status.ready h1 { color: var(--pass); }
+.status .route { font-size: 15px; color: var(--ink-2); margin-top: 10px; }
+.status .who-r { font-family: var(--serif); font-style: italic; font-size: 20px; color: var(--ink-2); }
+.cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--surface); }
+.cell { padding: 14px 18px 16px; border-right: 1px solid var(--line); color: inherit; text-decoration: none; transition: background .15s; }
+.cell:hover { background: var(--hover); }
+.cell:last-child { border-right: 0; }
+.cell .lbl2 { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.cell .num { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
+.cell .num b { font-family: var(--serif); font-weight: 500; font-size: 40px; line-height: 1; }
+.cell .num span { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.cell .ex { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.cell.p .num { color: var(--pass); } .cell.f .num { color: var(--flag); } .cell.u .num { color: var(--unk); } .cell.g .num { color: var(--gray); }
+.cell.zero .num { color: var(--faint); }
+.disc { font-size: 11px; color: var(--faint); margin-top: -8px; }
+@media (max-width: 900px) { .cells { grid-template-columns: 1fr 1fr; } .cell:nth-child(2) { border-right: 0; } .cell:nth-child(-n+2) { border-bottom: 1px solid var(--line); } }
+@media (max-width: 760px) { .status h1 { font-size: 36px; } }
 
-  /* summary */
-  .summary-box { border:1px solid var(--line); background:var(--surface); padding:20px 22px; }
-  .summary-text { margin:14px 0 20px; max-width:92ch; }
-  .quote { font:400 22px/1.45 var(--serif); color:var(--ink); margin:0 0 12px; letter-spacing:-.01em; }
-  .summary-text p:not(.quote) { font-size:14px; line-height:1.65; color:var(--ink-2); margin:0 0 10px; }
-  .summary-text ul { margin:0 0 12px; padding:0; list-style:none; border-left:1px solid var(--line-strong); }
-  .summary-text li { padding:3px 0 3px 14px; font-size:13.5px; color:var(--ink-2); position:relative; }
-  .summary-text li::before { content:""; position:absolute; left:-3px; top:11px; width:5px; height:5px; background:var(--ink-2); }
-  .banner { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 14px; margin:12px 0 0; border:1px solid var(--warn-line);
-            background:var(--warn-bg); animation:rise .4s var(--ease) both; }
-  .banner .grow { flex:1; min-width:200px; color:var(--ink-2); }
-  .two { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-  .panel { border:1px solid var(--line); background:var(--bg); padding:14px; }
-  .panel h3 { display:flex; align-items:center; gap:6px; }
-  .item { padding:10px 0; border-bottom:1px solid var(--line); }
-  .item:last-child { border-bottom:0; padding-bottom:0; }
-  .item .t { display:flex; gap:8px; align-items:baseline; justify-content:space-between; font-weight:500; color:var(--ink); }
-  .item p { margin:4px 0 6px; color:var(--ink-2); font-size:12.5px; }
-  .chips { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
-  .chip { font:400 11px/1.5 var(--mono); padding:0 6px; background:var(--sunken); border:1px solid var(--line); color:var(--ink-2);
-          text-decoration:none; transition:border-color .15s, background .15s; }
-  .chip:hover { border-color:var(--ink-2); background:var(--surface-2); }
-  .audience { font:600 10.5px/1 var(--sans); text-transform:uppercase; letter-spacing:.06em; color:var(--faint); margin-bottom:4px; }
+/* to review */
+.actions-list { list-style: none; margin: 16px 0 0; padding: 0; border: 1px solid var(--line); background: var(--surface); }
+.ai { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 16px; align-items: start; padding: 14px 16px 14px 14px;
+      border-bottom: 1px solid var(--line); border-left: 3px solid transparent; transition: background .15s; }
+.ai:hover { background: var(--hover); }
+.ai:last-child { border-bottom: 0; }
+.ai.e-fail { border-left-color: var(--flag); } .ai.e-refer { border-left-color: var(--unk); } .ai.e-conflict { border-left-color: var(--unk); } .ai.e-unk { border-left-color: var(--gray-ln); }
+.ai .t { font-size: 14.5px; } .ai .t .f { font-weight: 600; }
+.ai .r { font: 11.5px/1.55 var(--mono); color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .ai { grid-template-columns: 1fr; gap: 6px; } }
 
-  /* rules */
-  .rule-title { font-weight:500; color:var(--ink); } .rule-msg { font:400 11.5px/1.5 var(--mono); color:var(--muted); margin-top:2px; }
-  .clause { font:italic 400 13px/1.4 var(--serif); color:var(--muted); margin-top:3px; }
-  .passed > summary { padding:10px 2px 4px; color:var(--muted); }
+/* summary */
+.summary .snap { font-family: var(--serif); font-size: 19px; line-height: 1.5; color: var(--ink); max-width: 820px; margin: 16px 0 0; letter-spacing: -0.005em; }
+.summary .more p { max-width: 820px; color: var(--ink-2); margin: 10px 0 0; }
+.summary .more ul { margin: 8px 0 0; padding-left: 18px; max-width: 820px; color: var(--ink-2); }
+.grps { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 20px; }
+.grp { border: 1px solid var(--line); background: var(--surface); padding: 12px 14px; border-top: 3px solid var(--gray-ln); }
+.grp.concerns { border-top-color: var(--flag); } .grp.concerns h3 { color: var(--flag); }
+.grp h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.grp .it { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.grp .it:last-child { border-bottom: 0; padding-bottom: 2px; }
+.grp .it .h { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+.grp .it p { margin: 3px 0 6px; color: var(--ink-2); font-size: 13.5px; }
+.grp .aud { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chip { font: 11px/1.5 var(--mono); padding: 0 6px; background: var(--well); border: 1px solid var(--line); border-radius: 2px; color: var(--ink-2); text-decoration: none; }
+.chip:hover { border-color: var(--ink); }
+.stale { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
 
-  /* conflicts */
-  .conflict { border:1px solid var(--line); padding:14px 16px; margin-bottom:10px; transition:background .2s; }
-  .conflict.OPEN { box-shadow:inset 2px 0 0 var(--warn-fg); }
-  .conflict.RESOLVED { background:var(--surface); }
-  .conflict.target { animation:flash 1.8s var(--ease); }
-  .conflict h4 { margin:0; font-weight:500; font-size:13.5px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; color:var(--ink); }
-  .options { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; margin:12px 0; }
-  .opt { position:relative; display:block; border:1px solid var(--line-strong); padding:10px 12px; cursor:pointer; background:var(--bg);
-         transition:border-color .2s, background .2s, box-shadow .2s; }
-  .opt:hover { background:var(--surface); }
-  .opt input { position:absolute; opacity:0; }
-  .opt:has(input:checked) { border-color:var(--ink-2); background:var(--sunken); box-shadow:inset 0 0 0 1px var(--ink-2); }
-  .opt .v { font:400 20px/1.3 var(--serif); color:var(--ink); word-break:break-word; }
-  .opt .s { font:400 11px/1.4 var(--mono); color:var(--muted); margin-top:2px; }
-  .opt .sugg { position:absolute; top:-10px; right:10px; }
-  .resolve { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  .resolve input[type=text] { flex:1; min-width:200px; }
+/* rules */
+.rule { display: grid; grid-template-columns: 64px minmax(0, 1fr) 150px; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); align-items: start; }
+.rule:last-child { border-bottom: 0; }
+.rule .id { font: 600 12.5px/1.6 var(--mono); color: var(--muted); }
+.rule .nm { font-weight: 600; }
+.rule .why { color: var(--ink-2); margin-top: 2px; font-size: 13.5px; overflow-wrap: anywhere; }
+.rule .cl { font-family: var(--serif); font-style: italic; color: var(--muted); font-size: 13.5px; margin-top: 4px; }
+.rule .in { margin-top: 8px; }
+.rule .st { justify-self: end; }
+@media (max-width: 640px) { .rule { grid-template-columns: 52px 1fr; } .rule .st { grid-column: 2; justify-self: start; } }
 
-  /* extracted */
-  .tools { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  .tools input[type=search] { width:260px; max-width:100%; }
-  .toggle { display:inline-flex; gap:6px; align-items:center; font-size:12.5px; color:var(--ink-2); cursor:pointer; }
-  .entity { border:1px solid var(--line); margin-bottom:8px; background:var(--bg); }
-  .entity > summary { padding:9px 12px; display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; transition:background .15s; }
-  .entity > summary:hover { background:var(--surface); }
-  .entity > summary .ename { font-weight:500; color:var(--ink); }
-  .entity > summary code { background:none; border:0; padding:0; color:var(--faint); font-size:11px; word-break:break-all; min-width:0; }
-  .guide { margin:-4px 0 0; color:var(--ink-2); font-size:13.5px; } .guide b { color:var(--ink); }
-  .val { font-weight:500; color:var(--ink); word-break:break-word; }
-  .ex { font:400 11px/1.5 var(--mono); color:var(--muted); max-width:38ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .fail { color:var(--bad-fg); font:400 11px/1.4 var(--mono); }
-  .hidden { display:none !important; }
-  .vgroup { margin-bottom:18px; }
-  .vgroup-head { display:flex; gap:10px; align-items:baseline; margin:4px 0 8px; } .vgroup-head h3 { margin:0; }
-  .jur-head { padding:12px 12px 6px; border-top:1px solid var(--line); }
-  table.jur td, table.jur th { padding:4px 12px; } table.jur .num { text-align:right; }
-  .cellbtn { font:400 12px/1.4 var(--mono); text-transform:none; letter-spacing:0; padding:2px 4px; border:1px solid transparent;
-             background:none; color:var(--ink-2); }
-  .cellbtn:hover { border-color:var(--line-strong); background:var(--bg); }
-  .cellbtn.lo { color:var(--warn-fg); border-bottom:1px dashed var(--warn-fg); }
-  td.target { animation:flash 1.8s var(--ease); }
+/* conflicts */
+.conflict { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.conflict:last-child { border-bottom: 0; }
+.conflict .h { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-weight: 600; }
+.alts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+.alt { position: relative; display: block; border: 1px solid var(--unk-ln); background: var(--unk-bg); border-radius: var(--r); padding: 12px 14px; cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+.alt:hover { border-color: var(--unk); }
+.alt input { position: absolute; opacity: 0; }
+.alt:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); background: var(--surface); }
+.alt .src { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2);
+            padding-bottom: 8px; border-bottom: 1px solid var(--unk-ln); margin-bottom: 8px; }
+.alt .src span { color: var(--muted); font-weight: 500; letter-spacing: 0; text-transform: none; }
+.alt .k { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--unk); }
+.alt .v { font-size: 20px; font-family: var(--serif); margin: 2px 0 6px; overflow-wrap: anywhere; }
+.alt .sugg { position: absolute; top: -9px; right: 10px; }
+.alt.done { cursor: default; background: var(--surface); border-color: var(--line); }
+.resolve { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.resolve input { flex: 1; min-width: 200px; }
+.why-s { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+.resolution { margin-top: 10px; font-size: 13px; color: var(--ink-2); }
 
-  /* audit */
-  .timeline { list-style:none; margin:0; padding:0 0 0 14px; border-left:1px solid var(--line-strong); }
-  .timeline li { position:relative; padding:0 0 14px 14px; }
-  .timeline li::before { content:""; position:absolute; left:-18px; top:6px; width:7px; height:7px; background:var(--bg); border:1px solid var(--ink-2); }
-  .timeline .what { font-weight:500; color:var(--ink); } .timeline .diff { font:400 11px/1.5 var(--mono); color:var(--muted); word-break:break-word; }
-
-  @media (max-width: 1100px) {
-    .layout { grid-template-columns:minmax(0, 1fr); }
-    .rail { position:static; height:auto; border-right:0; border-top:1px solid var(--line); order:2; }
-  }
-  @media (max-width: 760px) {
-    .metrics { grid-template-columns:1fr 1fr; } .metric:nth-child(2) { border-right:0; }
-    .metric:nth-child(-n+2) { border-bottom:1px solid var(--line); }
-    .two { grid-template-columns:1fr; } .hide-sm { display:none; }
-    .content, .tabs { padding-left:16px; padding-right:16px; }
-    .act { grid-template-columns:1fr; gap:6px; }
-    .quote { font-size:18px; }
-  }
+/* extracted data */
+.tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.tools input[type=search] { width: 240px; padding: 5px 10px; }
+.toggle { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+.vgroup { margin-top: 18px; }
+.vgroup > .eyebrow { margin-bottom: 4px; }
+.entity { border-bottom: 1px solid var(--line); }
+.entity > summary { cursor: pointer; list-style: none; display: flex; gap: 10px; align-items: baseline; padding: 12px 0; flex-wrap: wrap; }
+.entity > summary::-webkit-details-marker { display: none; }
+.entity > summary .nm { font-weight: 600; } .entity > summary .k { font: 11px/1.4 var(--mono); color: var(--faint); }
+.chev { display: inline-block; color: var(--faint); transition: transform .2s var(--ease); font-family: var(--mono); }
+details[open] > summary .chev { transform: rotate(90deg); }
+details::details-content { height: 0; overflow: clip; transition: height .3s var(--ease), content-visibility .3s allow-discrete; }
+details[open]::details-content { height: auto; }
+:root { interpolate-size: allow-keywords; }
+.field { display: grid; grid-template-columns: 200px minmax(0, 1fr) auto; gap: 20px; padding: 14px 0 14px 14px; border-top: 1px solid var(--line); position: relative; }
+.field::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; background: transparent; }
+.field.att::before { background: var(--unk); } .field.miss::before { background: var(--flag); } .field.ovr::before { background: var(--ovr); }
+.field.flash, tr.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { from { background: #fff7e0; } to { background: transparent; } }
+.field .lab { font-weight: 600; } .field .key { font: 11px/1.4 var(--mono); color: var(--faint); margin-top: 2px; }
+.vline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.val { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.conf { font: 11.5px/1 var(--mono); color: var(--muted); }
+.ev { margin-top: 8px; display: grid; gap: 2px; }
+.notes { margin: 8px 0 0; padding-left: 16px; color: var(--flag); font-size: 12px; }
+.fix > summary { list-style: none; cursor: pointer; display: inline-block; margin-top: 8px; font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+.fix > summary::-webkit-details-marker { display: none; }
+.edit { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); }
+.edit input { flex: 1; min-width: 160px; }
+.edit .elab { flex-basis: 100%; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+@media (max-width: 760px) { .field { grid-template-columns: 1fr; gap: 6px; } }
+table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px 6px 0; } table.jur .num { text-align: right; }
+.cellbtn { font: 12px/1.4 var(--mono); padding: 1px 4px; border: 1px solid transparent; border-radius: 2px; background: none; cursor: pointer; }
+.cellbtn:hover { border-color: var(--line-2); background: var(--surface); }
+.cellbtn.lo { color: var(--unk); }
 </style>
 {% endblock %}
 
-{% block body %}
-<div class="layout">
-<aside class="rail">
-  <div class="rail-head"><span class="caps">Submission file</span><span class="mono faint">SUB-{{ '%04d'|format(sub.id) }}</span></div>
+{% block side %}
+<div class="eyebrow">Submission #{{ sub.id }}</div>
+<h2>{{ company or sub.subject }}</h2>
+<div class="meta">From {{ sub.sender }}<br>Received {{ sub.received_at.strftime('%b %d, %Y %H:%M') }}</div>
+<div class="eyebrow">Files in the packet</div>
+<ul class="files">
+  {% for d in docs %}
+  {% set bad = d.status in ('UNREADABLE', 'UNSUPPORTED') or d.pages|selectattr('status', 'in', ['MODEL_ERROR', 'UNREADABLE'])|list %}
+  <li title="{{ d.filename }} · {{ d.status }}"><span class="ext">{{ (d.filename.rsplit('.', 1)[-1] if '.' in d.filename else '?')[:4] }}</span>
+    <span class="name">{{ d.filename }}</span>
+    <span class="pg">{{ (d.pages|length ~ ' p') if d.pages else d.status|lower }}</span>
+    <span class="dot {{ 'bad' if bad else ('' if d.status in ('CONTAINER', 'DUPLICATE') else 'ok') }}"></span></li>
+  {% endfor %}
+</ul>
+<div class="actions">
+  <form method="post" action="/submissions/{{ sub.id }}/reprocess"><button class="btn primary" {% if running %}disabled{% endif %} title="Read every page again; your review decisions are kept">Reprocess</button></form>
+  <form method="post" action="/submissions/{{ sub.id }}/rerun-rules"><button class="btn" {% if running %}disabled{% endif %} title="Apply the current rules file to the current values">Re-run rules</button></form>
+</div>
+<p class="note">Reprocess reads every page again; your corrections and resolved conflicts are re-applied. <a href="/">All submissions</a></p>
+{% endblock %}
 
-  <div>
-    <div class="caps" style="margin-bottom:8px">Processing</div>
-    <ol class="vsteps" id="stepper">
-      {% for prefix, label in stages %}
-      <li class="{{ 'done' if (loop.index0 < stage or (not running and sub.status == 'DONE')) else ('active' if (loop.index0 == stage and running) else '') }}">{{ label }}</li>
+{% block body %}
+{% if running %}
+<div class="processing" id="processing" data-after="{{ logs[-1].id if logs else 0 }}" data-started="{{ run_started }}">
+  <div class="spinner"></div>
+  <div style="flex:1; min-width:0">
+    <h2>Reviewing the submission…</h2>
+    <p>{{ docs|rejectattr('status', 'equalto', 'CONTAINER')|list|length }} file(s). The steps run in order; results appear when all are done.</p>
+    {% set step_text = [
+      ('Split the email into files and pages; unpack zips, drop duplicates', 'Code'),
+      ('Classify each page by its content; transcribe scans and photos', 'Code + Model'),
+      ('Extract values with the line each came from; verify every excerpt', 'Model + Code'),
+      ('Cross-check values across documents; IFTA rows must add up', 'Code'),
+      ('Find conflicts and duplicate documents', 'Code'),
+      ('Apply the Trucking Program guideline rules', 'Code'),
+      ('Write the summary, concerns and next actions', 'Model')] %}
+    <ol class="pipe" id="pipe" aria-label="Processing steps">
+      {% for text, who in step_text %}
+      <li class="{{ 'done' if loop.index0 < stage else ('active' if loop.index0 == stage else '') }}"><span class="no">{{ '%02d'|format(loop.index) }}</span>
+        <span>{{ text }}</span><span class="who {{ 'llm' if who.startswith('Model') }}">{{ who }}</span></li>
       {% endfor %}
     </ol>
-    <details id="progress" data-running="{{ 1 if running else 0 }}" data-after="{{ logs[-1].id if logs else 0 }}" {% if running %}open{% endif %}>
-      <summary class="small muted"><span class="chev">›</span> Log · <span id="step">{{ sub.step }}</span></summary>
-      <div class="log" id="log">{% for l in logs %}<div class="{{ l.level }}"><span class="t">{{ l.at.strftime('%H:%M:%S') }}</span>{{ l.message }}</div>{% endfor %}</div>
-    </details>
+    <div class="elapsed" id="elapsed"></div>
+    <div class="log" id="log">{% for l in logs[-6:] %}<div class="{{ l.level }}">{{ l.message }}</div>{% endfor %}</div>
   </div>
+</div>
+{% else %}
 
-  <div>
-    <div class="caps" style="margin-bottom:8px">Ingested documents ({{ docs|rejectattr('status', 'equalto', 'CONTAINER')|list|length }})</div>
-    <div class="ledger">
-      {% for d in docs %}
-        {% set bad = d.status in ('UNREADABLE', 'UNSUPPORTED') or d.pages|selectattr('status', 'in', ['MODEL_ERROR', 'UNREADABLE'])|list %}
-        <div title="{{ d.filename }} · {{ d.status }}"><span class="dot {{ 'bad' if bad else ('mute' if d.status in ('CONTAINER', 'DUPLICATE') else '') }}"></span>
-          <span class="nm">{{ d.filename }}</span><span class="faint">{{ (d.pages|length ~ ' p') if d.pages else d.status|lower }}</span></div>
-      {% endfor %}
+{% if bad_pages or sub.status in ('FAILED', 'INTERRUPTED') %}<div style="display:grid; gap:10px">
+  {% if sub.status in ('FAILED', 'INTERRUPTED') %}<div class="alert err" role="alert"><b>Processing {{ sub.status|lower }}</b>{{ sub.step }}. Choose Reprocess to run it again.</div>{% endif %}
+  {% if bad_pages %}<div class="alert err" role="alert"><b>{{ bad_pages|length }} page(s) could not be read</b>
+    <ul>{% for d, p in bad_pages %}<li>{{ d.filename }} page {{ p.page_no }}: {{ p.status|replace('_', ' ')|lower }}{% if p.error %} ({{ p.error[:120] }}){% endif %}</li>{% endfor %}</ul>
+    <div style="margin-top:6px">Values on these pages are missing, never guessed; rules that need them show as couldn't be checked.</div></div>{% endif %}
+</div>{% endif %}
+
+<nav class="subnav" aria-label="Sections">
+  <a href="#sec-review">To review{% if todo %}<span class="cnt">{{ todo }}</span>{% endif %}</a>
+  <a href="#sec-summary">Summary</a>
+  <a href="#sec-rules">Rules</a>
+  <a href="#sec-conflicts">Conflicts{% if open_conflicts %}<span class="cnt u">{{ open_conflicts|length }}</span>{% endif %}</a>
+  <a href="#sec-data">Extracted data</a>
+  <a href="#sec-docs">Documents</a>
+  <a href="#sec-audit">Audit</a>
+</nav>
+
+<section class="status st-{{ sub.decision }} {{ 'ready' if sub.decision in ('PASS', 'READY_TO_QUOTE') }}" aria-label="Overall status">
+  <div class="status-top">
+    <div>
+      <div class="eyebrow">Overall status · {{ sub.decision or sub.status }}</div>
+      <h1>{{ headline.get(sub.decision, 'Not decided') }}</h1>
+      {% if sub.team %}<div class="route">Route to <b>{{ sub.team }}</b> underwriting{% if todo %} · {{ todo }} item(s) to review first{% endif %}</div>{% endif %}
     </div>
+    <div class="who-r">{{ company or 'Applicant name not confirmed' }}</div>
   </div>
-
-  <div class="rail-actions">
-    <form method="post" action="/submissions/{{ sub.id }}/rerun-rules"><button {% if running %}disabled{% endif %} title="Apply the current rules YAML to the current values">Re-run rules</button></form>
-    <form method="post" action="/submissions/{{ sub.id }}/reprocess"><button class="primary" {% if running %}disabled{% endif %} title="Re-read every page; review decisions are kept and re-applied">↻ Reprocess submission</button></form>
+  <div class="cells">
+    <a class="cell p {{ 'zero' if not passed }}" href="#sec-rules"><div class="lbl2">Rules passed</div>
+      <div class="num"><b>{{ passed|length }}</b><span>Pass</span></div><div class="ex">{{ passed|map(attribute='rule_id')|join(', ') or 'None' }}</div></a>
+    <a class="cell f {{ 'zero' if not failing }}" href="#sec-review"><div class="lbl2">Rules failed</div>
+      <div class="num"><b>{{ failing|length }}</b><span>{{ 'Decline' if failing|selectattr('outcome', 'equalto', 'DECLINE')|list else 'Refer' }}</span></div>
+      <div class="ex">{{ failing|map(attribute='rule_id')|join(', ') or 'None' }}</div></a>
+    <a class="cell g {{ 'zero' if not not_eval }}" href="#sec-review"><div class="lbl2">Couldn't be checked</div>
+      <div class="num"><b>{{ not_eval|length }}</b><span>Unknown</span></div><div class="ex">{{ not_eval|map(attribute='rule_id')|join(', ') or 'None' }}</div></a>
+    <a class="cell u {{ 'zero' if not open_conflicts }}" href="#sec-conflicts"><div class="lbl2">Open conflicts</div>
+      <div class="num"><b>{{ open_conflicts|length }}</b><span>of {{ conflicts|length }}</span></div><div class="ex">Documents that disagree</div></a>
   </div>
-</aside>
+  <div class="disc">Decision from deterministic rules ({{ sub.rules_version or '—' }}). The AI summary is advisory and never changes the decision.</div>
+</section>
 
-<div>
-  <nav class="tabs" aria-label="Sections">
-    <a href="#overview">Overview</a>
-    <a href="#actions">To review<span class="n">{{ failing|length + not_eval|length + open_conflicts|length }}</span></a>
-    <a href="#ai">AI summary</a>
-    <a href="#rules">Rules<span class="n">{{ rules|length }}</span></a>
-    <a href="#conflicts">Conflicts<span class="n">{{ open_conflicts|length }}</span></a>
-    <a href="#fields">Extracted data<span class="n">{{ n_fields }}</span></a>
-    <a href="#docs">Documents<span class="n">{{ n_pages }}</span></a>
-    <a href="#audit">Audit<span class="n">{{ audits|length }}</span></a>
-  </nav>
+<section id="sec-review">
+  <div class="sec-hd"><h2>To review</h2>{% if todo %}<span class="aside">{{ todo }} item(s) need a person</span>{% endif %}</div>
+  {% if todo %}<ul class="actions-list">
+    {% for r in failing %}<li class="ai {{ 'e-fail' if r.outcome in ('DECLINE', 'ERROR') else 'e-refer' }}">
+      <div><span class="pill {{ r.outcome }}">{{ 'Failed' if r.outcome != 'ERROR' else 'Error' }}</span></div>
+      <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r">{{ r.rule_id }} · {{ r.message.split(' | OK: ')[0] }}</div></div>
+      <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
+    {% for c in open_conflicts %}<li class="ai e-conflict">
+      <div><span class="pill CONFLICT">Conflicting</span></div>
+      <div><div class="t"><span class="f">{{ label_for(c.entity_key, names) }}</span>: {{ c.field_name|replace('_', ' ') }}</div>
+        <div class="r">{{ c['values']|map(attribute='value')|unique|join('  vs  ') }}</div></div>
+      <a class="btn sm" href="#C{{ c.id }}">Resolve</a></li>{% endfor %}
+    {% for r in not_eval %}<li class="ai e-unk">
+      <div><span class="pill NOT_EVALUATED">Unknown</span></div>
+      <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r">{{ r.rule_id }} · {{ r.message.split(' | OK: ')[0] }}</div></div>
+      <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
+  </ul>
+  {% else %}<div class="allclear"><span class="tick">✓</span>Nothing failed, nothing conflicting. Every rule passed.</div>{% endif %}
+</section>
 
-  <div class="content {{ 'is-running' if running }}">
-  <section class="status anchor rise" id="overview">
-    <div class="status-line"><span class="caps">Overall status</span><span class="sep"></span>
-      <span class="pill {{ sub.status }}" id="status-pill">{{ sub.status }}</span>
-      {% if sub.decision %}<span class="pill {{ sub.decision }}">{{ sub.decision }}</span>{% endif %}</div>
-    <div class="title-row">
-      <h1>{{ headline.get(sub.decision, 'Processing…' if running else 'Not decided') }}</h1>
-      <span class="co">{{ company or sub.subject }}</span>
+<section id="sec-summary" class="summary">
+  <div class="sec-hd"><h2>Underwriter summary</h2><span class="pill neutral plain">AI-generated</span>
+    {% if sub.summary and sub.summary.out_of_date %}<span class="pill REFER plain">Out of date</span>{% endif %}
+    <div class="right"><form method="post" action="/submissions/{{ sub.id }}/rerun-analysis"><button class="btn sm">Regenerate</button></form></div></div>
+  {% if not sub.summary %}<p class="muted">No analysis yet.</p>
+  {% elif sub.summary.error %}<div class="alert err" style="margin-top:16px"><b>The AI analyst failed</b>{{ sub.summary.error }}. The rules decision above is unaffected.</div>
+  {% else %}
+    {% if sub.summary.out_of_date %}<div class="alert warn stale"><span>Written before a review change: {{ sub.summary.out_of_date }}. Regenerate to update it.</span></div>{% endif %}
+    {% set blocks = sub.summary.summary|summary_blocks %}
+    <p class="snap">{{ blocks[0][1] }}</p>
+    <div class="more">{% for kind, body in blocks[1:] %}{% if kind == 'ul' %}<ul>{% for i in body %}<li>{{ i }}</li>{% endfor %}</ul>{% else %}<p>{{ body }}</p>{% endif %}{% endfor %}</div>
+    <div class="grps">
+      <div class="grp concerns"><h3>Concerns · {{ sub.summary.concerns|length }}</h3>
+        {% for c in sub.summary.concerns %}<div class="it">
+          <div class="h"><span>{{ c.title }}</span><span class="pill {{ c.severity }}">{{ c.severity }}</span></div>
+          <p>{{ c.detail }}</p>
+          <div class="chips">{% for e in c.evidence %}{{ cite(e) }}{% endfor %}{% if c.unsupported %}<span class="pill REFER plain">unsupported</span>{% endif %}</div>
+        </div>{% endfor %}</div>
+      <div class="grp"><h3>Next actions · {{ sub.summary.recommendations|length }}</h3>
+        {% for r in sub.summary.recommendations %}<div class="it">
+          <div class="aud">For the {{ r.audience }}</div>
+          <div class="h"><span>{{ r.action }}</span></div>
+          <p>{{ r.reason }}</p>
+          <div class="chips">{% for e in r.evidence %}{{ cite(e) }}{% endfor %}</div>
+        </div>{% endfor %}</div>
     </div>
-    {% if sub.decision and not running %}<p class="guide">{% set todo = failing|length + not_eval|length + open_conflicts|length %}
-      {% if todo %}<b>What to do:</b> work through the {{ todo }} items under <a href="#actions">To review</a>. Resolving a conflict or correcting a value re-runs the rules straight away.
-      {% else %}<b>Nothing needs a person.</b> Every rule passed and no conflicts are open.{% endif %}</p>{% endif %}
-    {% if running %}<div class="running-note" role="status"><span class="pill PROCESSING">Processing</span>
-      <span>Results are being rebuilt. The figures below are incomplete and refresh on their own when the run finishes.</span>
-      <span class="sweep"></span></div>{% endif %}
-    <div class="metrics">
-      <a class="metric {{ 'bad' if failing else 'good' }}" href="#rules"><span class="caps">Rule failures</span>
-        <div class="big"><span class="num" data-count="{{ failing|length }}">{{ failing|length }}</span><span class="unit">of {{ rules|length }}</span></div>
-        <div class="note">{{ rules|selectattr('outcome', 'equalto', 'PASS')|list|length }} passed{% if rules|selectattr('outcome', 'equalto', 'FLAG')|list %} · {{ rules|selectattr('outcome', 'equalto', 'FLAG')|list|length }} flagged{% endif %}</div></a>
-      <a class="metric {{ 'violet' if not_eval else '' }}" href="#rules"><span class="caps">Couldn't be checked</span>
-        <div class="big"><span class="num" data-count="{{ not_eval|length }}">{{ not_eval|length }}</span><span class="unit">rules</span></div>
-        <div class="note">Missing inputs: a person decides</div></a>
-      <a class="metric {{ 'warn' if open_conflicts else 'good' }}" href="#conflicts"><span class="caps">Open conflicts</span>
-        <div class="big"><span class="num" data-count="{{ open_conflicts|length }}">{{ open_conflicts|length }}</span><span class="unit">of {{ conflicts|length }}</span></div>
-        <div class="note">Cross-document contradictions</div></a>
-      <a class="metric {{ 'warn' if low_confidence else 'good' }}" href="#fields"><span class="caps">Values to verify</span>
-        <div class="big"><span class="num" data-count="{{ low_confidence }}">{{ low_confidence }}</span><span class="unit">of {{ n_fields }}</span></div>
-        <div class="note">Confidence below 0.85</div></a>
-    </div>
-    <div class="ribbon">
-      <i>Decision from deterministic rules{% if sub.team %}; route to {{ sub.team }} underwriting{% endif %}. The AI summary is advisory.</i>
-      <span class="mono">{{ sub.sender }} · {{ sub.received_at.strftime('%b %d %H:%M') }} · {{ sub.rules_version or 'rules —' }}</span>
-    </div>
-  </section>
+  {% endif %}
+</section>
 
-  <section class="anchor" id="actions">
-    <div class="sec-head"><h2>To review ({{ failing|length + not_eval|length + open_conflicts|length }})</h2>
-      <span class="caps">Underwriter intervention required</span></div>
-    {% if failing or not_eval or open_conflicts %}
-    {% if failing %}<details class="act-group" open>
-      <summary><span class="chev">›</span><span class="pill {{ 'DECLINE' if failing|selectattr('outcome', 'equalto', 'DECLINE')|list else 'REFER' }}">Rule failures</span>
-        <span class="g-count">{{ failing|length }}</span><span class="g-note">guideline checks that failed: decide or get the missing item</span></summary>
-      <div class="actions-list">{% for r in failing %}<div class="act {{ 'bad' if r.outcome == 'DECLINE' }}"><span class="mono rid">{{ r.rule_id }}</span>
-        <div style="min-width:0"><div class="what">{{ r.title }}</div><div class="why">{{ r.message.split(' | OK: ')[0] }}</div></div>
-        <a class="btn sm" href="#R{{ r.id }}">Review</a></div>{% endfor %}</div>
-    </details>{% endif %}
-    {% if open_conflicts %}<details class="act-group" open>
-      <summary><span class="chev">›</span><span class="pill tone-warn">Conflicts to resolve</span>
-        <span class="g-count">{{ open_conflicts|length }}</span><span class="g-note">documents disagree: pick the right value</span></summary>
-      <div class="actions-list">{% for c in open_conflicts %}<div class="act"><span class="mono rid">C{{ c.id }}</span>
-        <div style="min-width:0"><div class="what">{{ label_for(c.entity_key, names) }}: {{ c.field_name|replace('_', ' ') }}</div>
-          <div class="why">{{ c['values']|map(attribute='value')|join('  vs  ') }}</div></div>
-        <a class="btn sm" href="#C{{ c.id }}">Resolve</a></div>{% endfor %}</div>
-    </details>{% endif %}
-    {% if not_eval %}<details class="act-group">
-      <summary><span class="chev">›</span><span class="pill NOT_EVALUATED">Couldn't be checked</span>
-        <span class="g-count">{{ not_eval|length }}</span><span class="g-note">inputs missing from the submission: a person checks</span></summary>
-      <div class="actions-list">{% for r in not_eval %}<div class="act"><span class="mono rid">{{ r.rule_id }}</span>
-        <div style="min-width:0"><div class="what">{{ r.title }}</div><div class="why">{{ r.message.split(' | OK: ')[0] }}</div></div>
-        <a class="btn sm" href="#R{{ r.id }}">Review</a></div>{% endfor %}</div>
-    </details>{% endif %}
-    {% else %}<p class="muted">{{ 'Waiting for the rules.' if running else 'Nothing needs a person: every rule passed and no conflicts are open.' }}</p>{% endif %}
-  </section>
+<section id="sec-rules">
+  <div class="sec-hd"><h2>Rule checks</h2><span class="aside">Knight Trucking Program guideline · {{ rules|length }} rules, failures first</span></div>
+  {% for o in outcome_order %}{% for r in rules if r.outcome == o %}
+  <div class="rule" id="R{{ r.id }}">
+    <div class="id">{{ r.rule_id }}</div>
+    <div><div class="nm">{{ r.title }}</div><div class="why">{{ r.message|replace(' | OK: ', ' · OK: ') }}</div>
+      <div class="cl">“{{ r.source_clause }}”</div>
+      {% set inputs = [] %}{% for fid in r.input_field_ids if field_by_id.get(fid) %}{% set _ = inputs.append(field_by_id[fid]) %}{% endfor %}
+      {% if inputs %}<div class="in chips"><span class="small muted">Based on</span>{% for g in inputs|groupby('name') %}
+        <a class="chip" href="#F{{ g.list[0].id }}" title="{{ g.list|length }} value(s)">{{ g.grouper|replace('_', ' ') }}{% if g.list|length > 1 %} ×{{ g.list|length }}{% endif %}</a>{% endfor %}</div>{% endif %}</div>
+    <div class="st"><span class="pill {{ r.outcome }}">{{ r.outcome|replace('_', ' ') }}</span></div>
+  </div>{% endfor %}{% else %}{% endfor %}
+  {% if not rules %}<p class="muted">Not evaluated yet.</p>{% endif %}
+</section>
 
-  <section class="anchor" id="ai">
-    <div class="summary-box">
-      <div class="sec-head" style="margin:0"><div style="display:flex; gap:10px; align-items:center"><h2>Underwriter summary</h2>
-        <span class="tag">AI-generated</span></div>
-        <span class="small muted">Advisory. Every item cites the values it relies on; citations are checked in code.</span></div>
-      {% if not sub.summary %}<p class="muted">{{ 'The analyst runs after the rules.' if running else 'No analysis yet.' }}</p>
-      {% elif sub.summary.error %}<p><span class="pill MODEL_ERROR">Model error</span> {{ sub.summary.error }}</p>
-      {% else %}
-        {% if sub.summary.out_of_date %}<div class="banner"><span class="pill tone-warn">Out of date</span>
-          <span class="grow">Written before a review change: {{ sub.summary.out_of_date }}.</span>
-          <form method="post" action="/submissions/{{ sub.id }}/rerun-analysis"><button class="sm primary" {% if running %}disabled{% endif %}>↻ Regenerate</button></form></div>{% endif %}
-        <div class="summary-text">{% for kind, body in sub.summary.summary|summary_blocks %}
-          {% if kind == 'lead' %}<p class="quote">{{ body }}</p>
-          {% elif kind == 'ul' %}<ul>{% for i in body %}<li>{{ i }}</li>{% endfor %}</ul>
-          {% else %}<p>{{ body }}</p>{% endif %}{% endfor %}</div>
-        <div class="two">
-          <div class="panel"><h3><span class="pill tone-bad plain">Concerns</span> {{ sub.summary.concerns|length }}</h3>
-            {% for c in sub.summary.concerns %}<div class="item">
-              <div class="t"><span>{{ c.title }}</span><span class="pill {{ c.severity }}">{{ c.severity }}</span></div>
-              <p>{{ c.detail }}</p>
-              <div class="chips">{% for e in c.evidence %}{{ cite(e) }}{% endfor %}
-                {% if c.unsupported %}<span class="pill LOW_CONFIDENCE">unsupported</span>{% endif %}
-                <span class="small faint" style="margin-left:auto">conf {{ '%.2f'|format(c.confidence) }}</span></div>
-            </div>{% endfor %}
-          </div>
-          <div class="panel"><h3><span class="pill tone-info plain">Next actions</span> {{ sub.summary.recommendations|length }}</h3>
-            {% for r in sub.summary.recommendations %}<div class="item">
-              <div class="audience">{{ r.audience }}</div>
-              <div class="t"><span>{{ r.action }}</span></div>
-              <p>{{ r.reason }}</p>
-              <div class="chips">{% for e in r.evidence %}{{ cite(e) }}{% endfor %}
-                <span class="small faint" style="margin-left:auto">conf {{ '%.2f'|format(r.confidence) }}</span></div>
-            </div>{% endfor %}
-          </div>
+<section id="sec-conflicts">
+  <div class="sec-hd"><h2>Conflicts &amp; duplicates</h2><span class="aside">{{ open_conflicts|length }} open of {{ conflicts|length }} · never picked automatically</span></div>
+  {% for c in conflicts|sort(attribute='status') %}
+  <div class="conflict" id="C{{ c.id }}">
+    <div class="h"><span class="pill {{ c.status }}">{{ c.status }}</span>{{ label_for(c.entity_key, names) }}: {{ c.field_name|replace('_', ' ') }}
+      {% if c.kind != 'CONFLICT' %}<span class="pill neutral plain">{{ c.kind|replace('_', ' ')|lower }}</span>{% endif %}</div>
+    {% if c.description %}<div class="small muted" style="margin-top:4px">{{ c.description }}</div>{% endif %}
+    {% if c.status == 'OPEN' %}<form method="post" action="/conflicts/{{ c.id }}/resolve">{% endif %}
+    <div class="alts">{% for g in c['values']|groupby('value') %}
+      {% set ids = g.list|map(attribute='field_id')|list %}{% set suggested = c.suggested_field_id in ids %}
+      {% set first = field_by_id.get(ids[0]) %}
+      <label class="alt {{ 'done' if c.status != 'OPEN' }}">
+        {% if c.status == 'OPEN' %}<input type="radio" name="field_id" value="{{ c.suggested_field_id if suggested else ids[0] }}" {% if suggested or (not c.suggested_field_id and loop.first) %}checked{% endif %}>{% endif %}
+        {% if suggested and c.status == 'OPEN' %}<span class="pill PASS sugg">Suggested</span>{% endif %}
+        <div class="src">Source {{ 'ABCDEFGH'[loop.index0] }}<span>{{ g.list[0].source }}{% if g.list|length > 1 %} + {{ g.list|length - 1 }} more{% endif %}</span></div>
+        <div class="k">Stated value</div><div class="v">{{ g.grouper }}</div>
+        {% if first and first.excerpt %}<q class="snip">{{ first.excerpt[:140] }}</q>{% endif %}
+      </label>{% endfor %}</div>
+    {% if c.status == 'OPEN' %}
+      {% if c.suggestion_reason %}<div class="why-s">Why suggested: {{ c.suggestion_reason }}</div>{% endif %}
+      <div class="resolve"><input type="text" name="reason" required placeholder="Reason for your choice (required; recorded in the audit log)" aria-label="Reason">
+        <button class="btn primary">Resolve</button></div>
+    </form>
+    {% else %}<div class="resolution"><span class="pill human plain">Decided</span> {{ c.resolution }}</div>{% endif %}
+  </div>
+  {% else %}<div class="allclear"><span class="tick">✓</span>No conflicts between documents.</div>{% endfor %}
+</section>
+
+<section id="sec-data">
+  <div class="sec-hd"><h2>Extracted data</h2><span class="aside">{{ n_fields }} values, each with the line it was read from</span>
+    <div class="right tools"><input type="search" id="q" placeholder="Filter values…" aria-label="Filter values">
+      <label class="toggle"><input type="checkbox" id="lowonly"> Needs review only ({{ low_confidence }})</label></div></div>
+  {% for label, entries in value_groups %}
+  <div class="vgroup">
+    <div class="eyebrow">{{ label }}</div>
+    {% for key, items in entries %}
+    {% set period = key.split(':', 1)[1] if key.startswith('ifta:') else None %}
+    {% set jrows = ifta_rows.get(period, []) if period else [] %}
+    {% set lows = (items|selectattr('status', 'equalto', 'LOW_CONFIDENCE')|list|length) + (jrows|selectattr('low')|list|length) %}
+    <details class="entity" {% if label.startswith('Applicant') %}open{% endif %}>
+      <summary><span class="chev">›</span><span class="nm">{{ label_for(key, names) }}</span><span class="k">{{ key }}</span>
+        <span class="small muted">{{ items|length }} values{% if jrows %} · {{ jrows|length }} jurisdictions{% endif %}</span>
+        {% if lows %}<span class="pill LOW_CONFIDENCE">{{ lows }} to review</span>{% endif %}</summary>
+      {% for f in items %}
+      {% set failed = (f.validation or {}).items()|selectattr(1, 'sameas', false)|list %}
+      <div class="field {{ 'ovr' if f.method == 'human' else ('miss' if failed else ('att' if f.status == 'LOW_CONFIDENCE' else '')) }} frow" id="F{{ f.id }}" data-low="{{ 1 if f.status == 'LOW_CONFIDENCE' else 0 }}">
+        <div><div class="lab">{{ f.name|replace('_', ' ')|capitalize }}</div><div class="key">F{{ f.id }} · {{ f.method }}</div></div>
+        <div style="min-width:0">
+          <div class="vline"><span class="val">{{ f.value }}</span>
+            {% if f.method == 'human' %}<span class="pill human">Human override</span>{% elif f.status != 'OK' %}<span class="pill {{ f.status }}">{{ f.status|replace('_', ' ') }}</span>{% endif %}
+            <span class="conf">conf {{ '%.2f'|format(f.confidence) }}</span></div>
+          {% if f.excerpt %}<div class="ev"><span class="loc">{{ src(f) }}</span><q class="snip">{{ f.excerpt }}</q></div>{% endif %}
+          {% if failed %}<ul class="notes">{% for k, v in failed %}<li>Check failed: {{ k|replace('_', ' ') }}</li>{% endfor %}</ul>{% endif %}
+          {% if f.status != 'SUPERSEDED' %}<details class="fix"><summary>Correct this value</summary>
+            <form class="edit" method="post" action="/fields/{{ f.id }}/override"><span class="elab">Reviewer correction</span>
+              <input type="text" name="value" value="{{ f.value }}" aria-label="Corrected value">
+              <input type="text" name="reason" placeholder="Reason (required)" required aria-label="Reason">
+              <button class="btn primary sm">Save</button></form></details>{% endif %}
         </div>
-      {% endif %}
-    </div>
-  </section>
-
-  <section class="anchor" id="rules">
-    <div class="sec-head"><h2>Rule checks</h2><span class="mono faint small">Knight Trucking Program guideline · {{ sub.rules_version or '—' }}</span></div>
-    {% macro rule_row(r) %}<tr id="R{{ r.id }}">
-      <td class="nowrap mono"><b>{{ r.rule_id }}</b></td>
-      <td><div class="rule-title">{{ r.title }}</div><div class="rule-msg">{{ r.message }}</div><div class="clause">“{{ r.source_clause }}”</div></td>
-      <td class="hide-sm"><div class="chips">{% for fid in r.input_field_ids %}{{ cite('F' ~ fid) }}{% endfor %}</div></td>
-      <td style="text-align:right"><span class="pill {{ r.outcome }}">{{ r.outcome|replace('_', ' ') }}</span></td>
-    </tr>{% endmacro %}
-    {% if not rules %}<p class="muted">Not evaluated yet.</p>{% else %}
-    <div class="table-wrap"><table>
-      <thead><tr><th>Rule</th><th>Check and result</th><th class="hide-sm">Based on</th><th style="text-align:right">Outcome</th></tr></thead>
-      <tbody>{% for o in outcome_order if o != 'PASS' %}{% for r in rules if r.outcome == o %}{{ rule_row(r) }}{% endfor %}{% endfor %}</tbody>
-    </table></div>
-    {% set passed = rules|selectattr('outcome', 'equalto', 'PASS')|list %}
-    {% if passed %}<details class="passed"><summary><span class="chev">›</span> {{ passed|length }} rules passed</summary>
-      <div class="table-wrap"><table><tbody>{% for r in passed %}{{ rule_row(r) }}{% endfor %}</tbody></table></div></details>{% endif %}
-    {% endif %}
-  </section>
-
-  <section class="anchor" id="conflicts">
-    <div class="sec-head"><h2>Conflicts &amp; duplicates</h2><span class="caps">{{ open_conflicts|length }} open · {{ conflicts|length }} total · a person decides</span></div>
-    {% for c in conflicts|sort(attribute='status') %}
-    <div class="conflict {{ c.status }}" id="C{{ c.id }}">
-      <h4><span class="pill {{ c.status }}">{{ c.status }}</span><span class="pill plain">{{ c.kind|replace('_', ' ') }}</span>
-        {{ label_for(c.entity_key, names) }}: {{ c.field_name|replace('_', ' ') }} <span class="mono faint small">{{ c.entity_key }}</span></h4>
-      {% if c.description %}<div class="small muted" style="margin-top:6px">{{ c.description }}</div>{% endif %}
-      {% if c.status == 'OPEN' %}
-      <form method="post" action="/conflicts/{{ c.id }}/resolve">
-        <div class="options">{% for g in c['values']|groupby('value') %}
-          {% set ids = g.list|map(attribute='field_id')|list %}
-          {% set suggested = c.suggested_field_id in ids %}
-          <label class="opt"><input type="radio" name="field_id" value="{{ c.suggested_field_id if suggested else ids[0] }}" {% if suggested or (not c.suggested_field_id and loop.first) %}checked{% endif %}>
-            {% if suggested %}<span class="pill PASS sugg" title="{{ c.suggestion_reason }}">Suggested</span>{% endif %}
-            <div class="v">{{ g.grouper }}</div>
-            <div class="s" title="{{ g.list|map(attribute='source')|join('\n') }}">{{ g.list[0].source }}{% if g.list|length > 1 %} <b>+ {{ g.list|length - 1 }} more</b>{% endif %}</div></label>{% endfor %}</div>
-        {% if c.suggestion_reason %}<div class="small muted" style="margin:-2px 0 10px"><i class="serif">Why suggested:</i> {{ c.suggestion_reason }}</div>{% endif %}
-        <div class="resolve"><input type="text" name="reason" required placeholder="Reason for your decision (required, goes to the audit log)">
-          <button class="primary" {% if running %}disabled{% endif %}>Resolve</button></div>
-      </form>
-      {% else %}
-        <div class="options">{% for g in c['values']|groupby('value') %}<div class="opt" style="cursor:default"><div class="v">{{ g.grouper }}</div>
-          <div class="s">{{ g.list[0].source }}{% if g.list|length > 1 %} <b>+ {{ g.list|length - 1 }} more</b>{% endif %}</div></div>{% endfor %}</div>
-        <div class="small"><span class="pill human plain">Decision</span> <span class="muted">{{ c.resolution }}</span></div>
-      {% endif %}
-    </div>
-    {% else %}<p class="muted">No conflicts found.</p>{% endfor %}
-  </section>
-
-  <section class="anchor" id="fields">
-    <div class="sec-head"><h2>Extracted data</h2>
-      <div class="tools"><input type="search" id="q" placeholder="Filter: field, value, entity…" aria-label="Filter extracted values">
-        <label class="toggle"><input type="checkbox" id="lowonly"> Needs review only ({{ low_confidence }})</label></div></div>
-    <p class="small muted" style="margin:-4px 0 12px">{{ n_fields }} values across {{ entities|length }} entities, each with its source excerpt and a confidence.
-      Click <b>Evidence</b> to check a value against the page and correct it. {% if replaced %}{{ replaced }} values from earlier runs are kept for audit and hidden.{% endif %}</p>
-    {% macro field_table(items) %}<div class="table-wrap"><table>
-        <thead><tr><th>Field</th><th>Value</th><th class="hide-sm">Evidence</th><th>Confidence</th><th>Status</th><th></th></tr></thead>
-        <tbody>{% for f in items %}
-        <tr id="F{{ f.id }}" class="frow" data-low="{{ 1 if f.status == 'LOW_CONFIDENCE' else 0 }}">
-          <td class="nowrap">{{ f.name|replace('_', ' ') }}<div class="mono faint" style="font-size:11px">F{{ f.id }}</div></td>
-          <td class="val">{{ f.value }}</td>
-          <td class="hide-sm"><div class="ex">{{ f.excerpt[:80] }}</div><div class="small faint">{{ f.method }}</div></td>
-          <td>{{ meter(f.confidence) }}</td>
-          <td><span class="pill {{ 'human' if f.method == 'human' else f.status }}">{{ 'human override' if f.method == 'human' else f.status|replace('_', ' ') }}</span>
-            {% for k, v in (f.validation or {}).items() if v is sameas false %}<div class="fail">✗ {{ k|replace('_', ' ') }}</div>{% endfor %}</td>
-          <td class="nowrap" style="text-align:right"><button class="sm" type="button" {{ ev_attrs(f) }}>Evidence</button></td>
-        </tr>{% endfor %}</tbody>
-      </table></div>{% endmacro %}
-    {% for label, entries in value_groups %}
-    <div class="vgroup">
-      <div class="vgroup-head"><h3>{{ label }}</h3><span class="faint small">{{ entries|length }} {{ 'item' if entries|length == 1 else 'items' }}</span></div>
-      {% for key, items in entries %}
-      {% set period = key.split(':', 1)[1] if key.startswith('ifta:') else None %}
-      {% set jrows = ifta_rows.get(period, []) if period else [] %}
-      {% set lows = (items|selectattr('status', 'equalto', 'LOW_CONFIDENCE')|list|length) + (jrows|selectattr('low')|list|length) %}
-      <details class="entity" {% if loop.index <= 3 and label.startswith('Applicant') %}open{% endif %}>
-        <summary><span class="chev">›</span><span class="ename">{{ label_for(key, names) }}</span><code>{{ key }}</code>
-          <span class="small faint">{{ items|length }} values{% if jrows %} · {{ jrows|length }} jurisdictions{% endif %}</span>
-          {% if lows %}<span class="pill LOW_CONFIDENCE">{{ lows }} to review</span>{% endif %}</summary>
-        {{ field_table(items) }}
-        {% if jrows %}
-        <div class="jur-head caps">Jurisdiction rows · click a figure for its evidence</div>
-        <div class="table-wrap"><table class="jur">
-          <thead><tr>{% for col in ifta_columns %}<th class="{{ 'num' if col not in ('jurisdiction', 'surcharge') }}">{{ col|replace('_', ' ') }}</th>{% endfor %}</tr></thead>
-          <tbody>{% for row in jrows %}<tr class="frow" data-low="{{ 1 if row.low else 0 }}">
-            {% for col in ifta_columns %}{% set f = row.cells.get(col) %}
-            <td class="{{ 'num' if col not in ('jurisdiction', 'surcharge') }}" {% if f %}id="F{{ f.id }}"{% endif %}>{% if f %}<button type="button" class="cellbtn {{ 'lo' if f.status == 'LOW_CONFIDENCE' }}" {{ ev_attrs(f) }}>{{ f.value }}</button>{% endif %}</td>
-            {% endfor %}</tr>{% endfor %}</tbody>
-        </table></div>
-        {% endif %}
-      </details>
+        <div>{% if f.page_id and pages.get(f.page_id) and pages[f.page_id].image_path %}<button class="btn sm" type="button" data-evidence data-id="{{ f.id }}" data-entity="{{ label_for(key, names) }}">View page</button>{% endif %}</div>
+      </div>
       {% endfor %}
-    </div>
+      {% if jrows %}
+      <div class="tbl"><table class="jur">
+        <thead><tr>{% for col in ifta_columns %}<th class="{{ 'num' if col not in ('jurisdiction', 'surcharge') }}">{{ col|replace('_', ' ') }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for row in jrows %}<tr class="frow" data-low="{{ 1 if row.low else 0 }}">
+          {% for col in ifta_columns %}{% set f = row.cells.get(col) %}
+          <td class="{{ 'num' if col not in ('jurisdiction', 'surcharge') }}" {% if f %}id="F{{ f.id }}"{% endif %}>{% if f %}<button type="button" class="cellbtn {{ 'lo' if f.status == 'LOW_CONFIDENCE' }}" data-evidence data-id="{{ f.id }}" data-entity="{{ label_for(key, names) }}">{{ f.value }}</button>{% endif %}</td>
+          {% endfor %}</tr>{% endfor %}</tbody>
+      </table></div>
+      {% endif %}
+    </details>
     {% endfor %}
-    <p class="muted hidden" id="nomatch">No values match the filter.</p>
-  </section>
-
-  <section class="anchor" id="docs">
-    <div class="sec-head"><h2>Documents received</h2><span class="caps">{{ n_pages }} pages · classified by content, not file name</span></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>File</th><th>Page</th><th>Detected as</th><th class="hide-sm">How</th><th>Status</th><th></th></tr></thead>
-      <tbody>
-      {% for d in docs %}
-        {% if not d.pages %}<tr><td class="mono">{{ d.filename }}{% if d.parent_id %} <span class="faint">· from zip</span>{% endif %}</td><td></td><td></td><td class="hide-sm"></td>
-          <td><span class="pill {{ d.status }}">{{ d.status }}</span> <span class="small muted">{{ d.error }}{% if d.duplicate_of_id %} duplicate of document {{ d.duplicate_of_id }}{% endif %}</span></td><td></td></tr>{% endif %}
-        {% for p in d.pages %}<tr>
-          <td class="mono">{% if loop.first %}{{ d.filename }}{% endif %}</td>
-          <td class="nowrap mono">{{ p.page_no }}{% if p.label %} <span class="faint">{{ p.label }}</span>{% endif %}</td>
-          <td>{{ p.doc_type|replace('_', ' ')|capitalize }}</td>
-          <td class="small hide-sm"><span class="mono">{{ p.classify_method }} · {{ '%.2f'|format(p.classify_confidence) }}</span> · {{ p.text_source|replace('_', ' ') or 'image only' }}
-            <div class="faint">{{ p.classify_reason[:150] }}</div></td>
-          <td><span class="pill {{ p.status }}">{{ p.status }}</span>{% if p.error %}<div class="small muted">{{ p.error[:120] }}</div>{% endif %}</td>
-          <td style="text-align:right">{% if p.image_path %}<button class="sm" type="button" data-page data-image="/pages/{{ p.id }}/image"
-                data-kicker="{{ p.doc_type }}" data-title="{{ d.filename }} · page {{ p.page_no }}" data-note="{{ p.classify_reason }}">View</button>{% endif %}</td>
-        </tr>{% endfor %}
-      {% endfor %}
-      </tbody>
-    </table></div>
-  </section>
-
-  <section class="anchor" id="audit">
-    <div class="sec-head"><h2>Audit log</h2><span class="caps">{{ audits|length }} events · who, what, why</span></div>
-    {% if audits %}<ol class="timeline">{% for a in audits %}<li>
-      <div><span class="what">{{ a.action }}</span> <span class="small faint">· {{ a.actor }} · {{ a.at.strftime('%b %d %H:%M:%S') }}</span></div>
-      <div class="small">{{ a.target }}{% if a.reason %} — <i class="serif">{{ a.reason }}</i>{% endif %}</div>
-      {% if a.before or a.after %}<div class="diff">{{ a.before }} → {{ a.after }}</div>{% endif %}
-    </li>{% endfor %}</ol>{% else %}<p class="muted">No events yet.</p>{% endif %}
-  </section>
   </div>
-</div>
-</div>
+  {% endfor %}
+  <p class="muted hidden" id="nomatch">No values match the filter.</p>
+  {% if replaced %}<p class="note">{{ replaced }} values from earlier runs are kept for the audit trail and hidden here.</p>{% endif %}
+</section>
+
+<section id="sec-docs">
+  <div class="sec-hd"><h2>Documents received</h2><span class="aside">{{ n_pages }} pages, classified by content, not file name</span></div>
+  <div class="tbl"><table>
+    <thead><tr><th>File</th><th>Page</th><th>Detected as</th><th>Status</th><th>How</th><th></th></tr></thead>
+    <tbody>
+    {% for d in docs %}
+      {% if not d.pages %}<tr><td><b>{{ d.filename }}</b></td><td></td><td></td><td><span class="pill {{ d.status }} plain">{{ d.status|lower }}</span></td>
+        <td class="muted small">{{ d.error }}{% if d.duplicate_of_id %}duplicate of document {{ d.duplicate_of_id }}{% endif %}{% if d.status == 'CONTAINER' %}unpacked; its files are listed below{% endif %}</td><td></td></tr>{% endif %}
+      {% for p in d.pages %}<tr>
+        <td>{% if loop.first %}<b>{{ d.filename }}</b>{% endif %}</td>
+        <td class="mono">{{ p.page_no }}{% if p.label %} <span class="faint">{{ p.label }}</span>{% endif %}</td>
+        <td>{{ p.doc_type|replace('_', ' ')|capitalize }}</td>
+        <td>{% if p.status == 'OK' %}<span class="pill PASS plain">Read</span>{% else %}<span class="pill {{ p.status }} plain">{{ p.status|replace('_', ' ')|lower }}</span>{% endif %}</td>
+        <td class="muted small">{{ 'by content rules' if p.classify_method == 'rules' else 'by the model' }}{% if p.text_source == 'vision_transcript' %} · scan, transcribed{% endif %}</td>
+        <td>{% if p.image_path %}<button class="btn sm" type="button" data-page data-image="/pages/{{ p.id }}/image" data-kicker="{{ p.doc_type|replace('_', ' ') }}"
+              data-title="{{ d.filename }} · page {{ p.page_no }}" data-note="{{ p.classify_reason }}">View</button>{% endif %}</td>
+      </tr>{% endfor %}
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section id="sec-audit">
+  <div class="sec-hd"><h2>Audit log</h2><span class="aside">{{ audits|length }} events · who, what, why</span></div>
+  {% if audits %}<div class="tbl"><table>
+    <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Reason</th></tr></thead>
+    <tbody>{% for a in audits %}<tr><td class="mono nowrap">{{ a.at.strftime('%b %d %H:%M') }}</td><td>{{ a.actor }}</td>
+      <td>{{ a.action }}<div class="small muted">{{ a.target }}</div></td><td>{{ a.reason or '' }}</td></tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="muted">No events yet.</p>{% endif %}
+</section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function () {
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const esc = window.$esc;
 
-  // live progress: poll status, advance the stepper, stream the log; reload once when the job ends
-  const prog = $("#progress");
-  if (prog.dataset.running === "1") {
-    let after = +prog.dataset.after;
-    const steps = $$("#stepper li"), log = $("#log");
+  // processing: advance the steps, show the latest log lines and elapsed time; reload when done
+  const proc = $("#processing");
+  if (proc) {
+    let after = +proc.dataset.after;
+    const started = proc.dataset.started ? Date.parse(proc.dataset.started) : Date.now();
+    const clock = () => { $("#elapsed").textContent = Math.max(0, (Date.now() - started) / 1000).toFixed(1) + " s elapsed"; };
+    clock(); setInterval(clock, 100);
+    const steps = $$("#pipe li"), log = $("#log");
     const tick = async () => {
       try {
         const s = await (await fetch(`/submissions/{{ sub.id }}/status?after=${after}`)).json();
-        s.logs.forEach(l => {
-          const div = document.createElement("div"); div.className = l.level;
-          div.innerHTML = `<span class="t">${esc(l.at)}</span>${esc(l.message)}`; log.appendChild(div); after = l.id;
-        });
-        if (s.logs.length) log.scrollTop = log.scrollHeight;
-        $("#step").textContent = s.step;
-        const pill = $("#status-pill"); pill.className = "pill " + s.status; pill.textContent = s.status;
-        steps.forEach((li, i) => { li.className = (i < s.stage || !s.running) ? "done" : (i === s.stage ? "active" : ""); });
-        if (!s.running) { toast(`Processing finished: ${s.decision || s.status}`); setTimeout(() => location.reload(), 1100); return; }
+        s.logs.forEach(l => { const d = document.createElement("div"); d.className = l.level; d.textContent = l.message; log.appendChild(d); after = l.id; });
+        while (log.children.length > 6) log.removeChild(log.firstChild);
+        steps.forEach((li, i) => { li.className = i < s.stage ? "done" : (i === s.stage ? "active" : ""); });
+        if (!s.running) { location.reload(); return; }
       } catch (e) {}
-      setTimeout(tick, 1500);
+      setTimeout(tick, 1200);
     };
-    setTimeout(tick, 800);
+    setTimeout(tick, 600);
+    return;
   }
 
-  // section tabs: underline the section in view
-  const links = $$(".tabs a");
-  const spy = new IntersectionObserver(entries => entries.forEach(en => {
-    if (en.isIntersecting) links.forEach(a => a.classList.toggle("on", a.getAttribute("href") === "#" + en.target.id));
-  }), { rootMargin: "-120px 0px -60% 0px" });
-  $$("section.anchor").forEach(s => spy.observe(s));
+  // jump links to a value, rule or conflict: open its group and flash it
+  const flash = id => {
+    const el = id && document.getElementById(id); if (!el || el.tagName === "SECTION") return;
+    const d = el.closest("details.entity"); if (d) d.open = true;
+    const target = el.tagName === "TD" ? el.parentElement : el;
+    setTimeout(() => { target.scrollIntoView({ block: "center", behavior: "smooth" });
+                       target.classList.remove("flash"); void target.offsetWidth; target.classList.add("flash"); }, 30);
+  };
+  document.addEventListener("click", e => {
+    const a = e.target.closest("a[href^='#F'], a[href^='#R'], a[href^='#C']");
+    if (a) { e.preventDefault(); history.replaceState(null, "", a.getAttribute("href")); flash(a.getAttribute("href").slice(1)); }
+  });
+  if (/^#[FRC]\d+$/.test(location.hash)) flash(location.hash.slice(1));
+
+  // sub-navigation: mark the section in view
+  const links = $$(".subnav a");
+  const spy = new IntersectionObserver(es => es.forEach(en => { if (en.isIntersecting)
+    links.forEach(a => a.classList.toggle("on", a.getAttribute("href") === "#" + en.target.id)); }), { rootMargin: "-120px 0px -60% 0px" });
+  $$("section[id]").forEach(s => spy.observe(s));
 
   // filter extracted values
   const q = $("#q"), low = $("#lowonly");
-  const filter = () => {
-    const term = q.value.trim().toLowerCase(), lowOnly = low.checked; let any = false;
-    $$("#fields details.entity").forEach(d => {
-      const key = d.querySelector("summary").textContent.toLowerCase(); let shown = 0;
-      d.querySelectorAll("tr.frow").forEach(tr => {
-        const hit = (!term || key.includes(term) || tr.textContent.toLowerCase().includes(term)) && (!lowOnly || tr.dataset.low === "1");
-        tr.classList.toggle("hidden", !hit); shown += hit;
+  if (q) {
+    const filter = () => {
+      const term = q.value.trim().toLowerCase(), lowOnly = low.checked; let any = false;
+      $$("#sec-data details.entity").forEach(d => {
+        const head = d.querySelector("summary").textContent.toLowerCase(); let shown = 0;
+        d.querySelectorAll(".frow").forEach(r => {
+          const hit = (!term || head.includes(term) || r.textContent.toLowerCase().includes(term)) && (!lowOnly || r.dataset.low === "1");
+          r.classList.toggle("hidden", !hit); shown += hit;
+        });
+        d.classList.toggle("hidden", !shown); if ((term || lowOnly) && shown) d.open = true; any = any || shown > 0;
       });
-      d.classList.toggle("hidden", !shown); if ((term || lowOnly) && shown) d.open = true; any = any || shown > 0;
-    });
-    $$("#fields .vgroup").forEach(g => g.classList.toggle("hidden", !g.querySelector("details.entity:not(.hidden)")));
-    $("#nomatch").classList.toggle("hidden", any);
-  };
-  let h; q.addEventListener("input", () => { clearTimeout(h); h = setTimeout(filter, 120); });
-  low.addEventListener("change", filter);
-
-  // jump targets (#R, #C, #F): open their group and flash the row or card that was linked to
-  const flash = id => { const el = id && document.getElementById(id); if (!el || el.tagName === "SECTION") return;
-    const d = el.closest("details"); if (d) d.open = true;
-    el.classList.remove("target"); void el.offsetWidth; el.classList.add("target"); };
-  addEventListener("hashchange", () => flash(location.hash.slice(1)));
-  if (location.hash) flash(location.hash.slice(1));
+      $$("#sec-data .vgroup").forEach(g => g.classList.toggle("hidden", !g.querySelector("details.entity:not(.hidden)")));
+      $("#nomatch").classList.toggle("hidden", any);
+    };
+    let h; q.addEventListener("input", () => { clearTimeout(h); h = setTimeout(filter, 120); });
+    low.addEventListener("change", filter);
+  }
 })();
 </script>
 {% endblock %}

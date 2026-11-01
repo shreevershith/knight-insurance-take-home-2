@@ -1,118 +1,114 @@
 {% extends "base.html" %}
 {% block head %}
 <style>
-  .intro { display:grid; grid-template-columns: 1.2fr 1fr; gap:16px; align-items:stretch; margin-top:4px; }
-  .intro h1 { font-size:40px; }
-  .intro .caps { display:block; margin-bottom:6px; }
-  .lede { font:400 17px/1.55 var(--serif); color:var(--ink-2); max-width:60ch; margin:8px 0 16px; }
-  .flow { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12px; color:var(--muted); }
-  .flow span { background:var(--surface); border:1px solid var(--line); padding:3px 8px; color:var(--ink-2); font:400 11px/1.4 var(--mono); }
-  .flow i { font-style:normal; opacity:.6; }
-  .drop { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; text-align:center;
-          min-height:190px; border:1px dashed var(--line-strong); background:var(--surface);
-          padding:22px; cursor:pointer; transition:border-color .2s, background .25s, transform .25s var(--ease), box-shadow .25s; }
-  .drop:hover { border-color:var(--accent-2); box-shadow:var(--shadow-2); }
-  .drop.over { border-color:var(--accent-2); background:color-mix(in srgb, var(--accent-2) 7%, var(--surface)); transform:scale(1.01); }
-  .drop input { position:absolute; inset:0; opacity:0; cursor:pointer; }
-  .drop .glyph { width:40px; height:40px; display:grid; place-items:center; font-size:18px; border:1px solid var(--line-strong);
-                 background:var(--bg); color:var(--ink-2); transition:transform .3s var(--ease); }
-  .drop.over .glyph { transform:translateY(-4px) scale(1.06); }
-  .drop .files { font-size:12px; color:var(--ink-2); }
-  .drop-actions { display:flex; gap:8px; align-items:center; justify-content:space-between; margin-top:10px; flex-wrap:wrap; }
-  .routing { display:flex; gap:6px; flex-wrap:wrap; font-size:12px; }
-  .routing span { background:var(--sunken); border:1px solid var(--line); padding:2px 7px; color:var(--ink-2); font:400 11px/1.5 var(--mono); }
-  .routing b { font-weight:600; color:var(--muted); margin-right:4px; }
-  .sub-row td:first-child { width:56px; }
-  .sub-row .subject { font-weight:500; color:var(--ink); }
-  .sub-row .subject:hover { color:var(--accent-2); }
-  .step-note { display:block; color:var(--muted); font-size:12px; margin-top:2px; max-width:42ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .empty { padding:28px; text-align:center; color:var(--muted); }
-  @media (max-width: 900px) { .intro { grid-template-columns: 1fr; } }
-  @media (max-width: 720px) { .hide-sm { display:none; } }
+.hero-empty { padding: 56px 0 8px; max-width: 680px; }
+.hero-empty h1 { font-family: var(--serif); font-weight: 500; font-size: 44px; line-height: 1.08; letter-spacing: -0.025em; margin-top: 12px; }
+.hero-empty p { font-size: 16px; color: var(--ink-2); margin: 16px 0 0; max-width: 560px; }
+.steps { list-style: none; padding: 0; margin: 36px 0 0; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); }
+.steps li { padding: 16px 16px 0 0; font-size: 13px; color: var(--ink-2); }
+.steps .no { display: block; font: 500 12px/1 var(--mono); color: var(--faint); margin-bottom: 8px; }
+.steps .st-t { display: block; font-weight: 600; color: var(--ink); margin-bottom: 2px; }
+@media (max-width: 700px) { .steps { grid-template-columns: 1fr 1fr; } .hero-empty h1 { font-size: 34px; } }
+.subs { list-style: none; margin: 8px 0 0; padding: 0; }
+.subs li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.subs li:last-child { border-bottom: 0; }
+.subs .nm { font-weight: 600; color: var(--ink); text-decoration: none; }
+.subs .nm:hover { text-decoration: underline; }
+.subs .sub { font-size: 12.5px; color: var(--muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subs .st { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.subs .when { font: 12px/1 var(--mono); color: var(--faint); }
+@media (max-width: 640px) { .subs li { grid-template-columns: 1fr; gap: 6px; } .subs .st { justify-content: flex-start; } }
 </style>
 {% endblock %}
-{% block body %}
-<section class="intro">
-  <div class="rise" style="--i:0">
-    <span class="caps">Knight Specialty · Commercial Auto</span>
-    <h1>Submission intake</h1>
-    <p class="lede">Drop an agent's email. Attachments and zips are unpacked, every page is classified by content, values are
-      extracted with the evidence that supports them, and the Trucking Program guideline is applied by deterministic rules.</p>
-    <div class="flow"><span>Email</span><i>→</i><span>Pages</span><i>→</i><span>Classify</span><i>→</i><span>Extract + evidence</span>
-      <i>→</i><span>Conflicts</span><i>→</i><span>Rules</span><i>→</i><span>AI advisory</span></div>
-    {% if not llm_ok %}<p style="margin-top:14px"><span class="pill MODEL_ERROR">No API key</span>
-      <span class="small">ANTHROPIC_API_KEY is not set: image pages and extraction will show MODEL_ERROR.</span></p>{% endif %}
-  </div>
-  <form class="rise" style="--i:1" action="/submissions" method="post" enctype="multipart/form-data" id="upload">
-    <label class="drop" id="drop">
-      <input type="file" name="files" multiple required id="file">
-      <span class="glyph">⇪</span>
-      <b>Drop the .eml here, or click to choose</b>
-      <span class="small muted">Or several files: PDF, XLSX, images, zip</span>
-      <span class="files" id="files"></span>
-    </label>
-    <div class="drop-actions">
-      <div class="routing" title="Model per task (D-31). Cheap tiers escalate to Opus when a code check fails.">
-        {% for tier, model in routes.items() %}<span><b>{{ tier }}</b>{{ model }}</span>{% endfor %}
-      </div>
-      <button class="primary" type="submit" id="go" disabled>Process submission →</button>
-    </div>
-  </form>
-</section>
 
-<section class="card rise" style="--i:2">
-  <div class="card-head"><h2>Submissions</h2><span class="count">{{ subs|length }} received</span></div>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>#</th><th>Submission</th><th class="hide-sm">Received</th><th>Status</th><th>Decision</th><th class="hide-sm">Route to</th></tr></thead>
-    <tbody>
-    {% for s in subs %}
-    <tr class="sub-row" {% if s.status in ('RECEIVED', 'PROCESSING') %}data-live="{{ s.id }}"{% endif %}>
-      <td class="muted">{{ s.id }}</td>
-      <td><a class="subject" href="/submissions/{{ s.id }}">{{ companies.get(s.id) or s.subject }}</a>
-        <span class="step-note">{{ s.subject if companies.get(s.id) else s.sender }}</span></td>
-      <td class="small muted nowrap hide-sm">{{ s.received_at.strftime('%b %d, %H:%M') }}</td>
-      <td><span class="pill {{ s.status }}" data-f="status">{{ s.status }}</span><span class="step-note" data-f="step">{{ s.step if s.status != 'DONE' else '' }}</span></td>
-      <td data-f="decision">{% if s.decision %}<span class="pill {{ s.decision }}">{{ s.decision }}</span>{% else %}<span class="muted">—</span>{% endif %}
-        {% if open_counts.get(s.id) %}<span class="step-note">{{ open_counts[s.id] }} open conflicts</span>{% endif %}</td>
-      <td class="hide-sm" data-f="team">{{ s.team or '' }}</td>
-    </tr>
-    {% else %}<tr><td colspan="6" class="empty">No submissions yet. Drop the sample email above to start.</td></tr>{% endfor %}
-    </tbody>
-  </table>
-  </div>
+{% block side %}
+<div class="eyebrow">Packet</div>
+<h2>One submission at a time</h2>
+<label class="drop" id="drop" tabindex="0">
+  <b>Drop files or click to browse</b>
+  <span>The agent's email (.eml), or the files: PDF, XLSX, images, zip</span>
+  <input type="file" id="fileInput" multiple class="hidden">
+</label>
+<ul class="files" id="fileList"></ul>
+<div class="actions">
+  <button class="btn primary" id="processBtn" type="button" disabled>Process submission</button>
+  <button class="btn" id="newBtn" type="button" title="Clear the packet">New</button>
+</div>
+<p class="note" id="err" role="alert"></p>
+{% if not llm_ok %}<div class="alert warn" style="margin-top:14px"><b>No API key</b>ANTHROPIC_API_KEY is not set: image pages and extraction will show MODEL_ERROR.</div>{% endif %}
+{% endblock %}
+
+{% block body %}
+<div class="hero-empty">
+  <div class="eyebrow">Knight Specialty · Commercial auto intake</div>
+  <h1>Review one agent submission</h1>
+  <p>Add the agent's email on the left and choose <b>Process submission</b>. Attachments and zips are unpacked, every page is read,
+    and the Trucking Program guideline is applied by deterministic rules.</p>
+  <ul class="steps">
+    <li><span class="no">01</span><span class="st-t">Upload</span>The email, or the attachments themselves.</li>
+    <li><span class="no">02</span><span class="st-t">Check</span>Every value comes with the line it was read from.</li>
+    <li><span class="no">03</span><span class="st-t">Resolve</span>Pick the right value where documents disagree; rules re-run.</li>
+    <li><span class="no">04</span><span class="st-t">Route</span>Decision and team from the rules; the AI summary is advisory.</li>
+  </ul>
+</div>
+
+<section>
+  <div class="sec-hd"><h2>Recent submissions</h2><span class="aside">{{ subs|length }} received</span></div>
+  {% if subs %}<ul class="subs">
+    {% for s in subs %}<li {% if s.status in ('RECEIVED', 'PROCESSING') %}data-live="{{ s.id }}"{% endif %}>
+      <div style="min-width:0"><a class="nm" href="/submissions/{{ s.id }}">{{ companies.get(s.id) or s.subject }}</a>
+        <div class="sub">#{{ s.id }} · {{ s.subject if companies.get(s.id) else s.sender }}</div></div>
+      <span class="when">{{ s.received_at.strftime('%b %d, %H:%M') }}</span>
+      <div class="st">
+        {% if s.status != 'DONE' %}<span class="pill {{ s.status }}" data-f="status">{{ s.status }}</span>{% endif %}
+        <span data-f="decision">{% if s.decision %}<span class="pill {{ s.decision }}">{{ s.decision }}</span>{% endif %}</span>
+        {% if s.team %}<span class="small muted" data-f="team">{{ s.team }}</span>{% endif %}
+        {% if open_counts.get(s.id) %}<span class="small muted">· {{ open_counts[s.id] }} open conflicts</span>{% endif %}
+      </div>
+    </li>{% endfor %}
+  </ul>{% else %}<p class="muted">Nothing yet. Process a submission and it appears here.</p>{% endif %}
 </section>
 {% endblock %}
+
 {% block scripts %}
 <script>
 (function () {
-  const drop = document.getElementById("drop"), input = document.getElementById("file"), go = document.getElementById("go");
-  const show = () => {
-    const names = [...input.files].map(f => f.name);
-    document.getElementById("files").textContent = names.length ? names.join(" · ") : "";
-    go.disabled = !names.length;
+  const $ = id => document.getElementById(id), esc = window.$esc;
+  const files = [];
+  const render = () => {
+    $("fileList").innerHTML = files.map((f, i) => `<li><span class="ext">${esc((f.name.split(".").pop() || "?").slice(0, 4))}</span>
+      <span class="name" title="${esc(f.name)}">${esc(f.name)}</span><span class="muted small">${(f.size / 1024).toFixed(1)} KB</span>
+      <button class="x" type="button" data-i="${i}" aria-label="Remove ${esc(f.name)}">×</button></li>`).join("");
+    $("processBtn").disabled = !files.length;
   };
-  input.addEventListener("change", show);
+  const add = list => { for (const f of list) if (!files.some(g => g.name === f.name && g.size === f.size)) files.push(f); render(); };
+  const drop = $("drop"), input = $("fileInput");
+  input.addEventListener("change", () => { add(input.files); input.value = ""; });
+  drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
   ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
-  ["dragleave", "drop"].forEach(t => drop.addEventListener(t, () => drop.classList.remove("over")));
-  drop.addEventListener("drop", e => { e.preventDefault(); input.files = e.dataTransfer.files; show(); });
-  document.getElementById("upload").addEventListener("submit", () => { go.disabled = true; go.textContent = "Uploading…"; });
+  ["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => add(e.dataTransfer.files));
+  $("fileList").addEventListener("click", e => { const b = e.target.closest(".x"); if (b) { files.splice(+b.dataset.i, 1); render(); } });
+  $("newBtn").addEventListener("click", () => { files.length = 0; render(); $("err").textContent = ""; });
+  $("processBtn").addEventListener("click", async () => {
+    const fd = new FormData(); files.forEach(f => fd.append("files", f, f.name));
+    $("processBtn").disabled = true; $("processBtn").textContent = "Uploading…";
+    try {
+      const res = await fetch("/submissions", { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
+      location.href = res.url;   // the submission page, which shows the processing steps
+    } catch (e) { $("err").textContent = "Upload failed: " + e.message; $("processBtn").disabled = false; $("processBtn").textContent = "Process submission"; }
+  });
 
-  // live status for rows still processing
+  // live rows
   const rows = [...document.querySelectorAll("[data-live]")];
-  const poll = () => rows.forEach(async row => {
+  if (rows.length) setInterval(() => rows.forEach(async row => {
     if (!row.dataset.live) return;
     try {
       const s = await (await fetch(`/submissions/${row.dataset.live}/status?after=999999999`)).json();
-      const pill = row.querySelector("[data-f=status]");
-      pill.className = "pill " + s.status; pill.textContent = s.status;
-      row.querySelector("[data-f=step]").textContent = s.running ? s.step : "";
-      if (s.decision) row.querySelector("[data-f=decision]").innerHTML = `<span class="pill ${s.decision}">${s.decision}</span>`;
-      row.querySelector("[data-f=team]").textContent = s.team || "";
-      if (!s.running) delete row.dataset.live;
+      if (!s.running) { delete row.dataset.live; location.reload(); }
     } catch (e) {}
-  });
-  if (rows.length) setInterval(poll, 2000);
+  }), 2500);
 })();
 </script>
 {% endblock %}
