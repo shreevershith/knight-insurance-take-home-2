@@ -42,7 +42,7 @@
 <h2>One submission at a time</h2>
 <label class="drop" id="drop" tabindex="0">
   <b>Drop files or click to browse</b>
-  <span>The agent's email (.eml), or the files: PDF, XLSX, images, zip</span>
+  <span>The agent's email (.eml), or the files: PDF, Excel, Word, images, zip</span>
   <input type="file" id="fileInput" multiple class="hidden">
 </label>
 <ul class="files" id="fileList"></ul>
@@ -79,7 +79,7 @@
         {% if s.status != 'DONE' %}<span class="pill {{ s.status }}" data-f="status">{{ s.status }}</span>{% endif %}
         <span data-f="decision">{% if s.decision %}<span class="pill {{ s.decision }}">{{ s.decision }}</span>{% endif %}</span>
         {% if s.team %}<span class="small muted" data-f="team">{{ s.team }}</span>{% endif %}
-        {% if open_counts.get(s.id) %}<span class="small muted">· {{ open_counts[s.id] }} open conflicts</span>{% endif %}
+        {% if open_counts.get(s.id) %}<span class="small muted">· {{ open_counts[s.id] }} open conflict{{ "s" if open_counts[s.id] != 1 }}</span>{% endif %}
       </div>
     </li>{% endfor %}
   </ul>{% else %}<p class="muted">Nothing yet. Process a submission and it appears here.</p>{% endif %}
