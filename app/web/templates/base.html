@@ -133,7 +133,7 @@ q.snip, .snip { quotes: none; display: inline-block; font: 12px/1.5 var(--mono);
 /* ---------- drawer (page image) ---------- */
 .scrim { position: fixed; inset: 0; background: rgba(245, 242, 235, .8); opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 60; }
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(580px, 100vw); background: var(--bg); z-index: 61; border-left: 1px solid var(--line-2);
-          box-shadow: -24px 0 48px -32px rgba(17,17,17,.35); transform: translateX(102%); transition: transform .32s var(--ease); display: flex; flex-direction: column; }
+          box-shadow: -24px 0 48px -32px rgba(17,17,17,.35); transform: translateX(calc(100% + 64px)); transition: transform .32s var(--ease); display: flex; flex-direction: column; }
 body.drawer-open .scrim { opacity: 1; pointer-events: auto; } body.drawer-open .drawer { transform: none; }
 .drawer-head { padding: 16px 22px; border-bottom: 1px solid var(--ink); display: flex; align-items: flex-start; gap: 12px; }
 .drawer-head h2 { font-family: var(--serif); font-weight: 500; font-size: 20px; }

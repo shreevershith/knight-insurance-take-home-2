@@ -4,7 +4,7 @@ import copy
 import pytest
 
 from app import config, pipeline, review
-from app.db import Document, Field, Page, SessionLocal, Submission, init_db
+from app.db import Conflict, Document, Field, Page, SessionLocal, Submission, init_db
 from app.rules import engine
 
 
@@ -72,8 +72,24 @@ def test_review_change_marks_ai_findings_out_of_date(sub_id):
         f = db.query(Field).filter_by(submission_id=sub_id).first()
         sub = review.override_field(db, f.id, "456", "agent corrected the DOT number", "uw")
         db.commit()
-        assert "applicant.dot_number" in sub.summary["out_of_date"]
+        assert sub.summary["out_of_date"] == "DOT number (Applicant) was changed by uw"   # plain words, no keys
         assert sub.summary["summary"] == "ok"        # findings kept, just labelled
+
+
+def test_correcting_a_value_closes_the_disagreement_about_it(sub_id):
+    with SessionLocal() as db:
+        f = db.query(Field).filter_by(submission_id=sub_id).first()
+        other = Conflict(submission_id=sub_id, kind="CONFLICT", entity_key="applicant", field_name="fein",
+                         description="", values=[], suggestion_reason="", status="OPEN", resolution="")
+        c = Conflict(submission_id=sub_id, kind="CONFLICT", entity_key="applicant", field_name="dot_number",
+                     description="", values=[{"value": "123", "field_id": f.id}], suggestion_reason="",
+                     status="OPEN", resolution="")
+        db.add_all([c, other])
+        db.commit()
+        review.override_field(db, f.id, "456", "checked SAFER", "uw")
+        db.commit()
+        assert (c.status, c.resolution) == ("RESOLVED", "uw corrected the value to '456': checked SAFER")
+        assert other.status == "OPEN"                 # a different fact's disagreement stays open
 
 
 def test_rerun_marks_ai_findings_out_of_date_only_when_an_outcome_changes(sub_id):

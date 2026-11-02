@@ -163,7 +163,7 @@ def _apply_human_decisions(db, submission_id, found: list[Conflict]) -> None:
                                        Conflict.description.like("[RESOLVED before reprocess]%")):
         earlier[(c.kind, c.entity_key, c.field_name)] = c
     for c in found:
-        if c.status != "OPEN":
+        if (c.status or "OPEN") != "OPEN":  # new rows have no status until flushed; the column default is OPEN
             continue
         h = humans.get((c.entity_key, c.field_name))
         prior = earlier.get((c.kind, c.entity_key, c.field_name))

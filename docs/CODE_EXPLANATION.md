@@ -89,7 +89,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 | `scripts/cost_report.py` | Cost per run (and per task for one run) from the ledger. |
 | `scripts/make_sample_eml.py`, `make_heldout*.py` | Build the sample email from the case-study files; generate the four held-out submissions. |
 | `scripts/pg_setup.ps1` | Creates the app's Postgres user and database from `DATABASE_URL` (Windows). |
-| `tests/` | 86 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
+| `tests/` | 87 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Image (Python 3.12, non-root, health check) and the stack: app, worker(s), Postgres 18. |
 | `PLAN.md`, `DECISIONS.md`, `RUN_LOG.md` | Requirements and the guideline as rules; every decision with options and reasons; every real model run with its cost and score. |
 

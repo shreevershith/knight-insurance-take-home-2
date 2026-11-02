@@ -228,7 +228,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 - **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
   current scores are regression results; held-out #3 has not been used for any fix; held-out #4's one miss was fixed after its first run.
 - On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
-- 86 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
+- 87 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
 ## Project structure
 

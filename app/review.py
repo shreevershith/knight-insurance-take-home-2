@@ -7,6 +7,7 @@ survives re-extraction (pipeline.reapply_human_decisions). Originals are never o
 from app.db import Conflict, Field, RuleResult, Submission, audit
 from app.extract.spec import SPEC
 from app.rules.engine import evaluate
+from app.web.labels import entity_labels, field_label, label_for
 
 FACT_FIELDS = {name for groups in SPEC.values() for _, _, fields in groups.values() for name in fields}
 
@@ -47,6 +48,18 @@ def _analysis_out_of_date(sub: Submission, why: str) -> None:
         sub.summary = {**sub.summary, "out_of_date": why}  # reassign: JSON columns don't track mutation
 
 
+def _entity_name(db, submission_id: int, entity_key: str) -> str:
+    """'Applicant', 'Luis E Morales', 'Kevin Brandt (not on the driver list)': how the page names an entity."""
+    fields = db.query(Field).filter(Field.submission_id == submission_id, Field.entity_key == entity_key).all()
+    return label_for(entity_key, entity_labels(fields))
+
+
+def _fact_name(db, submission_id: int, entity_key: str, name: str) -> str:
+    """'Agency phone (Applicant)', 'Date of birth (Luis E Morales)': how the page names this fact."""
+    label = field_label(name)
+    return f"{label[:1].upper()}{label[1:]} ({_entity_name(db, submission_id, entity_key)})"
+
+
 def override_field(db, field_id: int, value: str, reason: str, actor: str) -> Submission:
     if not reason.strip():
         raise ReviewError("a reason is required")
@@ -60,9 +73,14 @@ def override_field(db, field_id: int, value: str, reason: str, actor: str) -> Su
     audit(db, old.submission_id, actor, "field.override", f"field:{old.id} {old.entity_key}.{old.name}",
           before={"value": old.value, "field_id": old.id},
           after={"value": new.value, "field_id": new.id, "superseded_field_ids": superseded}, reason=reason.strip())
+    # a disagreement about this fact is settled by the edit: close it, as a reprocess would
+    for c in db.query(Conflict).filter(Conflict.submission_id == old.submission_id, Conflict.status == "OPEN",
+                                       Conflict.entity_key == old.entity_key, Conflict.field_name == old.name):
+        c.status = "RESOLVED"
+        c.resolution = f"{actor} corrected the value to '{new.value}': {reason.strip()}"
     sub = db.get(Submission, old.submission_id)
     evaluate(db, sub, actor=actor)
-    _analysis_out_of_date(sub, f"{old.entity_key}.{old.name} was changed by {actor}")
+    _analysis_out_of_date(sub, f"{_fact_name(db, sub.id, old.entity_key, old.name)} was changed by {actor}")
     return sub
 
 
@@ -97,7 +115,11 @@ def resolve_conflict(db, conflict_id: int, field_id: int, reason: str, actor: st
           reason=reason.strip())
     sub = db.get(Submission, c.submission_id)
     evaluate(db, sub, actor=actor)
-    _analysis_out_of_date(sub, f"conflict {c.entity_key}.{c.field_name} was resolved by {actor}")
+    if c.field_name in ("scheduled", "loss_run"):
+        why = f"the note about {_entity_name(db, sub.id, c.entity_key)} was acknowledged by {actor}"
+    else:
+        why = f"the disagreement on {_fact_name(db, sub.id, c.entity_key, c.field_name)} was resolved by {actor}"
+    _analysis_out_of_date(sub, why)
     return sub
 
 
