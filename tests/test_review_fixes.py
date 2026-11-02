@@ -131,3 +131,20 @@ def test_ifta_reread_keeps_the_continuation_page_and_human_decisions(db, monkeyp
     assert any(f.entity_key == "ifta_row:2026-03-31:TX" for f in page2)            # its rows were read again
     total = [f for f in page2 if f.entity_key == "ifta:2026-03-31" and f.name == "total_miles"]
     assert total and all(f.status == "SUPERSEDED" for f in total)                   # the human value still wins
+
+
+def test_a_conflict_with_nothing_to_choose_is_acknowledged_not_accepted(db):
+    from app import review
+    from app.db import Conflict
+    s, d, (page,) = _sub_with_pages(db, ["LOSS RUNS ATTACHED"], "QUOTE_FORM")
+    note = Field(submission_id=s.id, page_id=page.id, doc_type="QUOTE_FORM", entity_type="prior_policy",
+                 entity_key="prior_policy:2022-03-08", name="loss_runs_note", value="LOSS RUNS ATTACHED", method="llm_text")
+    db.add(note)
+    db.flush()
+    c = Conflict(submission_id=s.id, kind="CONFLICT", entity_key="prior_policy:2022-03-08", field_name="loss_run",
+                 description="no loss run for that term", values=[{"value": note.value, "field_id": note.id, "source": "x"}])
+    db.add(c)
+    db.commit()
+    review.resolve_conflict(db, c.id, note.id, "Asked the agent for the Lakeshore loss run", "uw")
+    db.commit()
+    assert c.status == "RESOLVED" and c.resolution == "uw acknowledged: Asked the agent for the Lakeshore loss run"

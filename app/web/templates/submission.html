@@ -219,6 +219,8 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 .cellbtn.lo { color: var(--unk); }
 
 .ai.e-ver { border-left-color: var(--ver); }
+.how-sugg { font-size: 13px; color: var(--ink-2); max-width: 860px; line-height: 1.6; margin: 8px 0 6px; }
+.alt.ack { cursor: default; }
 .grp .it .h { align-items: flex-start; }
 .grp .it .h .pill { flex: none; margin-top: 2px; }   /* don't stretch to a wrapped title's height */
 .codes { margin: 4px 0 14px; font-size: 13px; color: var(--ink-2); }
@@ -497,26 +499,34 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 
 <section id="sec-conflicts">
   <div class="sec-hd"><h2>Conflicts &amp; duplicates</h2><span class="aside">{{ open_conflicts|length }} open of {{ conflicts|length }} · never picked automatically</span></div>
+  <p class="how-sugg"><b>Suggested</b> is the value most documents agree on; on a tie, the more authoritative document
+    (MVR, then application, then license photo, loss run or IFTA, then driver or vehicle list, then quote form); for a
+    vehicle's make, what the VIN says. It's a hint: nothing changes until you choose and give a reason.</p>
   {% for c in conflicts|sort(attribute='status') %}
   <div class="conflict" id="C{{ c.id }}">
     <div class="h"><span class="pill {{ c.status }}">{{ c.status }}</span>{{ conflict_title(c) }}
       {% if c.kind != 'CONFLICT' %}<span class="pill neutral plain">{{ c.kind|replace('_', ' ')|lower }}</span>{% endif %}</div>
-    {% if c.description %}<div class="small muted" style="margin-top:4px">{{ c.description }}</div>{% endif %}
-    {% if c.status == 'OPEN' %}<form method="post" action="/conflicts/{{ c.id }}/resolve">{% endif %}
+    {% set ack = c.field_name in ('scheduled', 'loss_run') %}{# nothing to choose between: the agent has to answer #}
+    {% if c.description and (ack or c.kind != 'CONFLICT') %}<div class="small muted" style="margin-top:4px">{{ c.description }}</div>{% endif %}
+    {% if c.status == 'OPEN' %}<form method="post" action="/conflicts/{{ c.id }}/resolve">
+      {% if ack %}<input type="hidden" name="field_id" value="{{ c['values'][0].field_id }}">{% endif %}{% endif %}
     <div class="alts">{% for g in c['values']|groupby('value') %}
       {% set ids = g.list|map(attribute='field_id')|list %}{% set suggested = c.suggested_field_id in ids %}
       {% set first = field_by_id.get(ids[0]) %}
-      <label class="alt {{ 'done' if c.status != 'OPEN' }}">
-        {% if c.status == 'OPEN' %}<input type="radio" name="field_id" value="{{ c.suggested_field_id if suggested else ids[0] }}" {% if suggested or (not c.suggested_field_id and loop.first) %}checked{% endif %}>{% endif %}
+      <label class="alt {{ 'done' if c.status != 'OPEN' }} {{ 'ack' if ack }}">
+        {% if c.status == 'OPEN' and not ack %}<input type="radio" name="field_id" value="{{ c.suggested_field_id if suggested else ids[0] }}" {% if suggested or (not c.suggested_field_id and loop.first) %}checked{% endif %}>{% endif %}
         {% if suggested and c.status == 'OPEN' %}<span class="pill PASS sugg">Suggested</span>{% endif %}
         <div class="src">Source {{ 'ABCDEFGH'[loop.index0] }}<span>{{ g.list[0].source }}{% if g.list|length > 1 %} + {{ g.list|length - 1 }} more{% endif %}</span></div>
-        <div class="k">Stated value</div><div class="v">{{ g.grouper }}</div>
+        <div class="k">{{ 'From the loss run' if ack and c.field_name == 'scheduled' else 'Stated value' }}</div><div class="v">{{ g.grouper }}</div>
         {% if first and first.excerpt %}<q class="snip">{{ first.excerpt[:140] }}</q>{% endif %}
       </label>{% endfor %}</div>
     {% if c.status == 'OPEN' %}
-      {% if c.suggestion_reason %}<div class="why-s">Why suggested: {{ c.suggestion_reason }}</div>{% endif %}
+      {% if ack %}<div class="why-s"><b>Next step:</b> {{ c.suggestion_reason }}</div>
+      <div class="resolve"><input type="text" name="reason" required placeholder="What you did or found out (required; recorded in the audit log)" aria-label="Note">
+        <button class="btn primary">Acknowledge</button></div>
+      {% else %}{% if c.suggestion_reason %}<div class="why-s">Why suggested: {{ c.suggestion_reason }}</div>{% endif %}
       <div class="resolve"><input type="text" name="reason" required placeholder="Reason for your choice (required; recorded in the audit log)" aria-label="Reason">
-        <button class="btn primary">Resolve</button></div>
+        <button class="btn primary">Resolve</button></div>{% endif %}
     </form>
     {% else %}<div class="resolution"><span class="pill human plain">Decided</span> {{ c.resolution }}</div>{% endif %}
   </div>

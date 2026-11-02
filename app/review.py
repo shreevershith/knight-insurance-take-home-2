@@ -87,7 +87,10 @@ def resolve_conflict(db, conflict_id: int, field_id: int, reason: str, actor: st
         superseded = _supersede_extracted(db, c.submission_id, c.entity_key, c.field_name,
                                           extra_ids=[v["field_id"] for v in c.values if v["field_id"] != field_id])
     c.status = "RESOLVED"
-    c.resolution = f"{actor} accepted '{chosen['value']}' from {chosen['source']}: {reason.strip()}"
+    if c.field_name in ("scheduled", "loss_run"):  # nothing to choose between: the person records what they did
+        c.resolution = f"{actor} acknowledged: {reason.strip()}"
+    else:
+        c.resolution = f"{actor} accepted '{chosen['value']}' from {chosen['source']}: {reason.strip()}"
     audit(db, c.submission_id, actor, "conflict.resolve", f"conflict:{c.id} {c.entity_key}.{c.field_name}",
           before={"status": "OPEN", "values": c.values},
           after={"accepted": chosen, "human_field_id": human_id, "superseded_field_ids": superseded},
