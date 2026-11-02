@@ -479,3 +479,23 @@ every submission for the new message wording (no model calls). Sample #5 still 8
 
 After the fix: **67/67**; sample 87/87, #1 72/72, #2 70/71, #3 69/69 unchanged. Re-running the rules marked only #10's
 AI summary out of date (PRO-06 changed); regenerated, $0.123.
+
+### More AI where it helps: agent draft and commodity sorting (AI1, 11/03)
+
+Baseline before the change, then all five eval submissions reprocessed on the new code (extraction cached):
+
+| Set | Before | After |
+|---|---|---|
+| Sample (#5) | 87/87 | 87/87 |
+| Held-out #1 Desert Ridge (#6) | 72/72 | 72/72 |
+| Held-out #2 Bluestem (#7) | 70/71 | 70/71 (the same `mailing_state` miss) |
+| Held-out #3 Holston (#8) | 69/69 | 69/69 |
+| Held-out #4 Red River (#10) | 67/67 | 67/67 |
+
+- Commodity sorting: 22 commodities across the five sets, all sorted correctly ("Paper towels and tissue": none, 0.97;
+  "Lithium-ion batteries": lithium batteries, 0.99).
+- Look-alikes (12 names written to trip keywords): **model 12/12, keywords 8/12**. The keywords missed "Li-ion cells",
+  "Roll-off dumpster debris", "Construction and demolition debris" and wrongly hit "Tow bars and hitches (new, boxed)";
+  the model got that last one right at 0.60, so the rule asks to confirm instead of passing.
+- Cost per submission: draft $0.008 (Sonnet, ~5 s), commodity sort $0.0003 (Haiku, ~4 s).
+- Decision: keep both (D-48, D-49). Nothing got worse, so no rollback.

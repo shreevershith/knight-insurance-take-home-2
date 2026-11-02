@@ -69,6 +69,8 @@ flowchart TB
         resolve[resolve.py<br/>entity keys]
         conflicts[conflicts.py<br/>disagreements]
         analyst[analyst.py<br/>AI summary]
+        reply[reply.py<br/>draft to the agent]
+        commod[commodities.py<br/>commodity sorting]
     end
     subgraph Rules["Rules"]
         yaml[knight_v1.yaml<br/>42 rules, params, patterns]
@@ -84,8 +86,9 @@ flowchart TB
 
     main --> jobs --> worker --> pipeline
     main --> review --> engine
-    pipeline --> intake & classify & extract & resolve & conflicts & engine & analyst
-    classify & extract & analyst --> llm
+    pipeline --> intake & classify & extract & commod & resolve & conflicts & engine & analyst
+    analyst --> reply
+    classify & extract & commod & analyst & reply --> llm
     engine --> yaml & grules & view & derived
     pipeline & review & engine & main --> db
 ```
@@ -94,7 +97,7 @@ flowchart TB
 |---|---|---|
 | Web | `app/web/main.py`, `labels.py`, `templates/` | Upload, submission page, operations page, review actions, status polling |
 | Jobs | `app/jobs.py`, `app/worker.py` | A job table on Postgres; workers claim jobs with leases and retries |
-| Pipeline | `app/pipeline.py`, `intake.py`, `classify.py`, `extract/`, `resolve.py`, `conflicts.py`, `analyst.py` | Email → decision, one stage at a time |
+| Pipeline | `app/pipeline.py`, `intake.py`, `classify.py`, `extract/`, `commodities.py`, `resolve.py`, `conflicts.py`, `analyst.py`, `reply.py` | Email → decision, one stage at a time |
 | Rules | `app/rules/` | The guideline as YAML config plus one Python predicate per rule |
 | Review | `app/review.py` | Overrides and conflict resolutions as audited, re-applied "human" values |
 | Platform | `app/llm.py`, `db.py`, `config.py`, `log.py` | Model calls, persistence, settings, structured and PII-masked logs |
@@ -110,14 +113,16 @@ flowchart TD
     S1 --> S2[Classify pages<br/>classify.classify_page<br/>in parallel]
     S2 --> S3[Inherit continuation types<br/>pipeline._inherit_continuations]
     S3 --> S4[Extract values<br/>model calls in parallel,<br/>storage in page order]
-    S4 --> S5[Re-apply human decisions<br/>pipeline.reapply_human_decisions]
+    S4 --> S4b[Sort commodities<br/>commodities.classify]
+    S4b --> S5[Re-apply human decisions<br/>pipeline.reapply_human_decisions]
     S5 --> S6[Cross-checks<br/>cross-document, loss run vs listing,<br/>IFTA totals]
     S6 -->|IFTA rows don't add up| S6b[Re-read the scan on Opus<br/>pipeline._escalate_ifta]
     S6b --> S6
     S6 --> S7[Conflicts<br/>conflicts.detect]
     S7 --> S8[Rules<br/>engine.evaluate]
     S8 --> S9[AI analyst<br/>analyst.analyze]
-    S9 --> S10[DONE<br/>decision + team + summary]
+    S9 --> S9b[Draft reply to the agent<br/>reply.draft]
+    S9b --> S10[DONE<br/>decision + team + summary + draft]
 ```
 
 ### Run-time execution path (one submission)
@@ -146,7 +151,9 @@ sequenceDiagram
     Pipe->>Claude: extract values (6 at a time)
     Pipe->>DB: Fields with excerpt, page, confidence
     Pipe->>DB: Conflicts, RuleResults, decision, team
+    Pipe->>Claude: sort commodities (Haiku)
     Pipe->>Claude: analyst summary (Opus)
+    Pipe->>Claude: draft reply to the agent (Sonnet)
     Pipe->>DB: summary, status DONE
     Worker->>DB: finish(): Job DONE (or QUEUED for retry / FAILED)
     UW->>Web: GET /submissions/{id}/status (polling while running)
@@ -168,7 +175,9 @@ sequenceDiagram
 | Cross-check | `pipeline._cross_document_confirmation`, `_loss_runs_confirmed_by_listing`, `_ifta_reconciliation` | All values | Confidence raised where independent documents agree; IFTA returns confirmed only if rows add up to the printed total |
 | Conflicts | `conflicts.detect` | All active values | `Conflict` rows (OPEN), each with every source value and a suggested one: the value most documents agree on; on a tie, the more authoritative document (MVR > application > license photo, loss run, IFTA > driver/vehicle lists > quote form); for a vehicle's make, the VIN |
 | Rules | `rules/engine.evaluate` | `SubmissionView` (one value per fact) | 42 `RuleResult` rows, decision, team |
+| Commodities | `commodities.classify` | Commodity names | A `prohibited_category` value per commodity with a reason; the rules compare it with the keyword (D-49) |
 | Analyst | `analyst.analyze` | Values, conflicts, rule results, email body | Summary, concerns and next actions, each with cited ids (citations checked in code) |
+| Draft reply | `reply.draft` | Decline reasons, unchecked items, open disagreements, analyst's actions for the agent (chosen in code) | An editable email to the agent; codes removed; never sent (D-48) |
 
 ## 4. Data model
 
@@ -314,6 +323,8 @@ Human decisions are keyed by `(entity_key, field)`, not by row id, so they **sur
 | Transcribe scans and photos | Sonnet 5.5 | Only partly checkable by code, so a stronger model |
 | Extract values | Haiku 5.5 | Every value is checked against the page; failures escalate |
 | AI analyst | `CLAUDE_MODEL` (Opus 5.5) | Judgment, read by a person |
+| Sort commodities | Haiku 5.5 | A short list, compared with keywords in the rules; unsure results ask a person |
+| Draft reply to the agent (draft) | Sonnet 5.5 | Wording only; code chose the content and a person sends it |
 
 **Escalation** (`pipeline._llm_extract`, `classify.classify_page`, `pipeline._escalate_ifta`): a cheap-tier result is
 re-run on Opus when it fails a code check: a model error, no values, missing key fields, more than 20% of excerpts not
@@ -331,6 +342,7 @@ Each one is recorded in `DECISIONS.md` with the options and the reason.
 | Decision | Chosen | Trade-off |
 |---|---|---|
 | Who decides (D-12) | Deterministic rules; the model only reads and advises | Rules can't use judgment; the analyst covers that, advisory only |
+| Where more AI goes (D-48, D-49) | Where keywords or templates fail on meaning: commodity sorting, the agent reply. The model suggests; code compares, a person confirms | Two more calls (about $0.01 a submission) |
 | Unknown inputs (D-22, D-39) | "Not evaluated" refers, never passes; a page that couldn't be read is never reported as "missing" | More referrals than a system that guesses |
 | Outside data (D-39) | SAFER, border distance and the quoted premium are **VERIFY**: "ready to quote, after checks" | The final yes needs a person's lookup |
 | Confidence (D-14) | Computed in code (method × evidence × validators), not the model's self-rating | Starting priors; would be calibrated from real overrides |

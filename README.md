@@ -41,6 +41,12 @@ decision, the reasons, and an AI-written summary they can verify.
   (1–10 power units) or Fleet (11+).
 - **AI analyst.** A summary, underwriting concerns and next actions, each citing the values it relies on (citations
   verified in code), with the agent's email as context.
+- **Draft reply to the agent.** The email the underwriter would send next, asking for exactly what's missing or in
+  question (or a plain declination). Code chooses what it covers; the model only words it; editable, copied by the
+  underwriter, never sent by the app.
+- **Commodities read for meaning, not only keywords.** The model sorts each commodity against the prohibited cargo
+  (lithium batteries, towing, waste) with a reason; the rules compare that with the keyword, so "paper towels" isn't
+  towing and "Li-ion cells" are batteries. An unsure or disputed result asks a person; it never declines on its own.
 - **Review UI.** Decision and reasons, a "To review" list, rule checks with what changed since the last run,
   conflicts, every value with its evidence and page image, corrections with a required reason (rules re-run at once),
   and a full audit log.
@@ -164,7 +170,7 @@ Each submission page answers, top to bottom: **what's the decision, what needs a
 - **To review.** Everything that needs a person, grouped: reasons to refer or decline, documents that disagree (each
   value with the document it came from), what to verify before quoting, and what couldn't be checked.
 - **Underwriter summary.** Written by the AI: concerns and next actions, each citing the values it relies on. Advisory
-  only; it never changes the decision.
+  only; it never changes the decision. Below it, **Draft reply to the agent**: edit, Copy, send it from your own email.
 - **Rule checks.** All 42 rules with their outcome, the guideline sentence they implement and the values they used.
   The codes are for reference; the prefix is the guideline section:
 
@@ -195,7 +201,7 @@ All settings come from `.env` (see `.env.example`) or the environment. Defaults 
 | `CLAUDE_MODEL` | `claude-opus-5-5` | Model for the AI analyst |
 | `CLAUDE_EFFORT` | `medium` | Default effort for model calls |
 | `CLAUDE_FALLBACKS` | `default` | Server-side refusal fallback (not sent to Haiku); empty disables |
-| `LLM_MODEL_<TIER>` / `LLM_EFFORT_<TIER>` | Haiku (classify, extract), Sonnet (transcribe), `CLAUDE_MODEL` (analyst) | Override the model or effort for one task tier: `CLASSIFY`, `TRANSCRIBE`, `EXTRACT`, `ANALYST` |
+| `LLM_MODEL_<TIER>` / `LLM_EFFORT_<TIER>` | Haiku (classify, extract), Sonnet (transcribe, draft), `CLAUDE_MODEL` (analyst) | Override the model or effort for one task tier: `CLASSIFY`, `TRANSCRIBE`, `EXTRACT`, `ANALYST`, `DRAFT` |
 | `LLM_ESCALATION_MODEL` / `LLM_ESCALATION_EFFORT` | `claude-opus-5-5` / `medium` | Model used to re-run a result that failed a code check |
 | `LLM_CONCURRENCY` | `6` | Page calls run at the same time inside one job |
 | `LLM_TIMEOUT_SECONDS` | `180` | Timeout per model call (the SDK also retries) |
@@ -228,7 +234,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 - **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
   current scores are regression results; held-out #3 has not been used for any fix; held-out #4's one miss was fixed after its first run.
 - On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
-- 87 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
+- 97 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
 ## Project structure
 
@@ -238,7 +244,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 | `app/pipeline.py` | One run, stage by stage; parallel page calls; IFTA reconciliation |
 | `app/resolve.py`, `app/conflicts.py` | Matching entities across documents; conflicts and duplicates |
 | `app/rules/` | `knight_v1.yaml` (42 rules), the engine and guards, predicates, the resolved view |
-| `app/analyst.py`, `app/review.py` | The AI summary; human corrections |
+| `app/analyst.py`, `app/reply.py`, `app/commodities.py`, `app/review.py` | The AI summary; the draft reply to the agent; commodity sorting; human corrections |
 | `app/jobs.py`, `app/worker.py` | The job queue and workers |
 | `app/llm.py`, `app/db.py`, `app/config.py`, `app/log.py` | Model calls, data model, settings, logging |
 | `app/web/` | FastAPI routes and templates (review page, operations page) |
