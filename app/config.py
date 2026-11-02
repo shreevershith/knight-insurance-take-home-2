@@ -41,9 +41,10 @@ WORKER_POLL_SECONDS = float(_env("WORKER_POLL_SECONDS", "2"))
 # transcribing scans is only partly checkable (mid model), the analyst is judgment (CLAUDE_MODEL).
 # Override one tier with LLM_MODEL_<TIER> / LLM_EFFORT_<TIER>. A cheap-tier result that fails a code
 # check is re-run on the escalation model, so a cheaper model can cost a re-run, not a wrong value.
-TIERS = ("classify", "transcribe", "extract", "analyst")
+TIERS = ("classify", "transcribe", "extract", "analyst", "draft")
 TIER_DEFAULTS = {"classify": "claude-haiku-5-5", "transcribe": "claude-sonnet-5-5",
-                 "extract": "claude-haiku-5-5", "analyst": CLAUDE_MODEL}
+                 "extract": "claude-haiku-5-5", "analyst": CLAUDE_MODEL,
+                 "draft": "claude-sonnet-5-5"}  # wording the agent reply from findings code chose (D-48)
 RUN_LABEL = _env("LLM_RUN_LABEL")  # tags ledger lines for an experiment, e.g. "haiku"
 ESCALATION_MODEL = _env("LLM_ESCALATION_MODEL", "claude-opus-5-5")
 ESCALATION_EFFORT = _env("LLM_ESCALATION_EFFORT", "medium")

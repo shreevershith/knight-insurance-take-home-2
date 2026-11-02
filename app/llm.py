@@ -30,7 +30,8 @@ _client: anthropic.Anthropic | None = None
 # not a global: each job runs in its own thread, and two jobs at once must not log under each other's id.
 run_id: contextvars.ContextVar[str] = contextvars.ContextVar("run_id", default="")
 
-TIER_OF = {"classify_text": "classify", "classify_vision": "transcribe", "analyst": "analyst"}
+TIER_OF = {"classify_text": "classify", "classify_vision": "transcribe", "analyst": "analyst",
+           "agent_reply": "draft"}
 
 
 def tier_for(task: str) -> str:

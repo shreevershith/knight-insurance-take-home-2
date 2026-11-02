@@ -138,6 +138,13 @@
 .grp.concerns { border-top-color: var(--flag); } .grp.concerns h3 { color: var(--flag); }
 .grp h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
 .grp .it { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.reply { border: 1px solid var(--line); background: var(--surface); padding: 12px 14px; margin-top: 12px; border-top: 3px solid var(--ovr); }
+.reply-hd { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.reply-hd h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ovr); }
+.reply-hd .btn { margin-left: auto; }
+.reply-l { display: block; font-size: 12px; color: var(--muted); margin-top: 10px; }
+.reply-l input, .reply-l textarea { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--line-2);
+  background: var(--bg); color: var(--ink); font: 13.5px/1.55 inherit; font-family: inherit; box-sizing: border-box; resize: vertical; }
 .grp .it:last-child { border-bottom: 0; padding-bottom: 2px; }
 .grp .it .h { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
 .grp .it p { margin: 3px 0 6px; color: var(--ink-2); font-size: 13.5px; }
@@ -458,6 +465,18 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
           <div class="chips">{{ chips(r.evidence) }}</div>
         </div>{% endfor %}</div>
     </div>
+    {% set rep = sub.summary.agent_reply %}
+    {% if rep %}<div class="reply" id="reply">
+      <div class="reply-hd"><h3>Draft reply to the agent</h3><span class="pill neutral plain">AI-drafted · not sent</span>
+        {% if not rep.error %}<button class="btn sm" type="button" id="copyReply">Copy</button>{% endif %}</div>
+      {% if rep.error %}<p class="muted">The draft couldn't be written ({{ rep.error }}). Regenerate to try again.</p>
+      {% else %}
+      <p class="muted">Written from what the checks found: the decline reasons, what couldn't be checked and the documents that
+        disagree. Edit it here, then copy it into your email.</p>
+      <label class="reply-l">Subject<input id="replySubject" value="{{ rep.subject }}"></label>
+      <label class="reply-l">Message<textarea id="replyBody" rows="14">{{ rep.body }}</textarea></label>
+      {% endif %}
+    </div>{% endif %}
   {% endif %}
 </section>
 
@@ -683,6 +702,14 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
     let h; q.addEventListener("input", () => { clearTimeout(h); h = setTimeout(filter, 120); });
     low.addEventListener("change", filter);
   }
+  // draft reply: copy subject and message as edited
+  const copy = $("#copyReply");
+  if (copy) copy.addEventListener("click", async () => {
+    const text = `Subject: ${$("#replySubject").value}\n\n${$("#replyBody").value}`;
+    try { await navigator.clipboard.writeText(text); copy.textContent = "Copied"; }
+    catch (e) { $("#replyBody").select(); copy.textContent = "Press Ctrl+C"; }
+    setTimeout(() => { copy.textContent = "Copy"; }, 2000);
+  });
 })();
 </script>
 {% endblock %}

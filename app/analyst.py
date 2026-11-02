@@ -141,4 +141,11 @@ def analyze(db, sub: Submission) -> dict:
         if not item["evidence"]:
             item["confidence"] = min(item.get("confidence", 0), 0.3)
             item["unsupported"] = True
+    # the draft reply to the agent (D-48): its own call, so a failure there leaves the analysis intact
+    from app import reply
+    insured = next((e["value"] for e in context["entities"].get("applicant", []) if e["field"] == "business_name"), "")
+    try:
+        data["agent_reply"] = reply.draft(db, sub, data, insured)
+    except llm.LLMError as exc:
+        data["agent_reply"] = {"error": f"MODEL_ERROR: {exc}"}
     return data
