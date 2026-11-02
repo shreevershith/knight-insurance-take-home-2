@@ -560,3 +560,9 @@ Throw-away copy #50 of the sample (deleted afterwards, with its six Langfuse tra
 browser. Spaces-only reason: **was** a bare JSON error page, **now** back on the card with a red toast. Non-suggested
 value (LLC) with a reason: resolved with LLC, title and summary updated, open conflicts 12 → 11. Two acknowledgements
 with notes: resolved, 11 → 9, toast "Acknowledged. Rules re-run: REFER". Tests: 115.
+
+### The sample, fully live (LIVE1, 11/03)
+
+`LLM_CACHE=off` in Docker (D-56), the sample uploaded as on camera: **DONE, REFER, 136 s, 44 model calls, 0 cache hits,
+5 escalations, $0.66** (Haiku 24 calls $0.03, Sonnet 14 calls $0.24, Opus 6 calls $0.39); eval **87/87**. All 44
+generations reached Langfuse. The run (#51) and its trace were deleted afterwards. Tests: 116.

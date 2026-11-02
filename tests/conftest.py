@@ -7,3 +7,5 @@ os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="knight_test_")
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "")
 # Tests never send traces to the Langfuse project in .env (tests/test_tracing.py checks the masking offline).
 os.environ["LANGFUSE_TRACING_ENABLED"] = "false"
+# The response cache is on in tests whatever .env says (LLM_CACHE=off is for live demos).
+os.environ["LLM_CACHE"] = "on"

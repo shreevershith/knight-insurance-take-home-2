@@ -215,6 +215,7 @@ All settings come from `.env` (see `.env.example`) or the environment. Defaults 
 | `LLM_ESCALATION_MODEL` / `LLM_ESCALATION_EFFORT` | `claude-opus-5-5` / `medium` | Model used to re-run a result that failed a code check |
 | `LLM_CONCURRENCY` | `6` | Page calls run at the same time inside one job |
 | `LLM_TIMEOUT_SECONDS` | `180` | Timeout per model call (the SDK also retries) |
+| `LLM_CACHE` | `on` | `off` sends every model request live and saves nothing (a live demo); `on` reuses saved answers to identical requests |
 | `LLM_CACHE_DIR` | `llm_cache` | Response cache folder under `DATA_DIR`; point at an empty folder to measure a run with no cache hits |
 | `LLM_RUN_LABEL` | — | Tag added to cost-ledger lines for an experiment |
 | `DATA_DIR` | `data` | Files, page images, cache, cost ledger, SQLite database |
@@ -249,7 +250,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 - **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
   current scores are regression results; held-out #3 has not been used for any fix; held-out #4's one miss was fixed after its first run.
 - On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
-- 115 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
+- 116 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
 ## Project structure
 

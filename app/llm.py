@@ -158,7 +158,7 @@ def structured_call(*, task: str, system: str, content: list[dict], schema: dict
     cache_path = config.CACHE_DIR / f"{task}_{key[:24]}.json"
     meta = {"task": task, "tier": tier, "model": model, "effort": effort, "escalated": escalate,
             "escalation_reason": reason}
-    if cache_path.exists():
+    if config.LLM_CACHE and cache_path.exists():
         log.info("llm cache hit", task=task, **ctx)
         _ledger(**meta, cache_hit=True, input_tokens=0, output_tokens=0, cost_usd=0.0, seconds=0.0)
         return json.loads(cache_path.read_text(encoding="utf-8"))
@@ -206,5 +206,6 @@ def structured_call(*, task: str, system: str, content: list[dict], schema: dict
 
     log.info("llm call", task=task, model=response.model, request_id=response.request_id,
              input_tokens=response.input_tokens, output_tokens=response.output_tokens, **ctx)
-    cache_path.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    if config.LLM_CACHE:
+        cache_path.write_text(json.dumps(data, indent=1), encoding="utf-8")
     return data

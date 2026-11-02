@@ -31,6 +31,8 @@ services:
       LLM_CLIENT: ${LLM_CLIENT:-langchain}
       # D-52: Langfuse keys and base URL come from .env; traces from this stack are labelled by environment
       LANGFUSE_TRACING_ENVIRONMENT: ${LANGFUSE_TRACING_ENVIRONMENT:-docker}
+      # off = every model request is sent live and nothing is saved (a live demo); on = reuse saved answers
+      LLM_CACHE: ${LLM_CACHE:-on}
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:

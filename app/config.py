@@ -16,6 +16,9 @@ DATA_DIR = ROOT / _env("DATA_DIR", "data")
 BLOB_DIR = DATA_DIR / "blobs"
 PAGE_DIR = DATA_DIR / "pages"
 CACHE_DIR = DATA_DIR / _env("LLM_CACHE_DIR", "llm_cache")  # a fresh dir = a fully measured run
+# "off": every model request is sent live and nothing is saved (a demo that really calls the models); "on" reuses
+# saved answers to identical requests (repeatable, free re-runs and evals)
+LLM_CACHE = _env("LLM_CACHE", "on").lower() != "off"
 USAGE_LOG = DATA_DIR / "llm_usage.jsonl"  # one line per model call: the cost ledger (RUN_LOG.md)
 # SQLite by default; set DATABASE_URL (e.g. postgresql+psycopg://...) for Postgres. Same schema.
 DB_URL = _env("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'knight.db').as_posix()}"

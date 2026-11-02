@@ -72,3 +72,15 @@ def test_langchain_reply_problems_raise_the_same_errors(captured, monkeypatch):
     monkeypatch.setattr(ChatAnthropic, "_client", property(lambda self: Truncated()))
     with pytest.raises(llm.LLMError, match="truncated"):
         _call()
+
+
+def test_cache_off_sends_every_request_live_and_saves_nothing(captured, monkeypatch):
+    monkeypatch.setattr(config, "LLM_CLIENT", "sdk")
+    monkeypatch.setattr(config, "LLM_CACHE", False)
+    _call()
+    _call()                                                   # identical request: still sent, not reused
+    assert len(captured) == 2 and not list(config.CACHE_DIR.glob("*.json"))
+    monkeypatch.setattr(config, "LLM_CACHE", True)
+    _call()
+    _call()                                                   # with the cache on, the second one is reused
+    assert len(captured) == 3 and len(list(config.CACHE_DIR.glob("*.json"))) == 1
