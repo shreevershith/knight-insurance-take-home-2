@@ -51,6 +51,10 @@ decision, the reasons, and an AI-written summary they can verify.
   conflicts, every value with its evidence and page image, corrections with a required reason (rules re-run at once),
   and a full audit log.
 - **Operations page (`/ops`).** Failed or interrupted submissions, unreadable files, the job queue, and cost per run.
+- **LangGraph and LangChain.** The run is a LangGraph graph: each stage a node, a conditional edge for the IFTA
+  re-read, checkpoints in Postgres, and human review as `interrupt()`/resume, so every correction resumes the paused
+  run. Model requests go through LangChain's `ChatAnthropic`, with our own cache and cost ledger around it. Both are
+  switchable back to plain code, and were shown to give identical results.
 - **Reliable processing.** A job queue on Postgres with workers (`SKIP LOCKED`, leases, retries, takeover when a
   worker dies); page calls run in parallel inside a job.
 - **Cost control.** A model per task (Haiku, Sonnet, Opus), escalation only when a code check fails, a response cache
@@ -211,6 +215,8 @@ All settings come from `.env` (see `.env.example`) or the environment. Defaults 
 | `DATABASE_URL` | SQLite in `DATA_DIR` | e.g. `postgresql+psycopg://user:pass@localhost:5432/knight` |
 | `RULES_FILE` | `app/rules/knight_v1.yaml` | The guideline as rules |
 | `JOB_MODE` | `thread` | `thread`: the web process runs jobs; `queue`: workers (`python -m app.worker`) run them |
+| `PIPELINE_ENGINE` | `code` (Docker: `graph`) | `graph`: LangGraph runs the stages, with checkpoints and review as interrupt/resume; `code`: `pipeline.run` calls the same stages in order |
+| `LLM_CLIENT` | `sdk` (Docker: `langchain`) | Who sends a request on a cache miss: the Anthropic SDK or LangChain's `ChatAnthropic` (identical request) |
 | `JOB_LEASE_SECONDS` / `JOB_MAX_ATTEMPTS` / `JOB_RETRY_BACKOFF_SECONDS` / `WORKER_POLL_SECONDS` | `120` / `3` / `30` / `2` | Queue behaviour: lease length, attempts before FAILED, delay × attempt, polling interval |
 | `POSTGRES_PASSWORD` | — | Docker only: password of the container's Postgres |
 | `APP_PORT` | `8000` | Docker only: host port for the web app |
@@ -234,7 +240,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 - **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
   current scores are regression results; held-out #3 has not been used for any fix; held-out #4's one miss was fixed after its first run.
 - On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
-- 97 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
+- 107 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
 ## Project structure
 
@@ -245,6 +251,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 | `app/resolve.py`, `app/conflicts.py` | Matching entities across documents; conflicts and duplicates |
 | `app/rules/` | `knight_v1.yaml` (42 rules), the engine and guards, predicates, the resolved view |
 | `app/analyst.py`, `app/reply.py`, `app/commodities.py`, `app/review.py` | The AI summary; the draft reply to the agent; commodity sorting; human corrections |
+| `app/graph.py` | The LangGraph graph: stages as nodes, checkpointer, human review as interrupt/resume |
 | `app/jobs.py`, `app/worker.py` | The job queue and workers |
 | `app/llm.py`, `app/db.py`, `app/config.py`, `app/log.py` | Model calls, data model, settings, logging |
 | `app/web/` | FastAPI routes and templates (review page, operations page) |

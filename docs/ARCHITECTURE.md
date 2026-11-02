@@ -68,6 +68,7 @@ flowchart TB
         extract[extract/<br/>LLM, spreadsheet, IFTA table,<br/>evidence, normalize, spec]
         resolve[resolve.py<br/>entity keys]
         conflicts[conflicts.py<br/>disagreements]
+        lgraph[graph.py<br/>LangGraph: nodes, checkpoints,<br/>review interrupt]
         analyst[analyst.py<br/>AI summary]
         reply[reply.py<br/>draft to the agent]
         commod[commodities.py<br/>commodity sorting]
@@ -85,7 +86,8 @@ flowchart TB
     config[config.py<br/>settings, model routing]
 
     main --> jobs --> worker --> pipeline
-    main --> review --> engine
+    pipeline --> lgraph
+    main --> lgraph --> review --> engine
     pipeline --> intake & classify & extract & commod & resolve & conflicts & engine & analyst
     analyst --> reply
     classify & extract & commod & analyst & reply --> llm
@@ -299,6 +301,10 @@ stateDiagram-v2
 
 ## 6. Human review loop
 
+With `PIPELINE_ENGINE=graph` (Docker's default) the loop below runs **inside the LangGraph run**: the graph pauses at
+`human_review` after the analyst, and each action resumes it (section 11). Older submissions, or the `code` engine,
+call the same review functions directly.
+
 ```mermaid
 flowchart LR
     V[Underwriter sees a value,<br/>its source line and page] --> A{Action}
@@ -351,6 +357,7 @@ Each one is recorded in `DECISIONS.md` with the options and the reason.
 | Normalization (D-24) | Normalize for comparison, never overwrite source values | Two representations of each value |
 | Rules as config (D-12, PLAN §5b) | YAML (thresholds, keyword lists, outcomes) + one Python function per rule | Engineers still change logic; a rules UI is designed only |
 | Model per task (D-31) | Haiku / Sonnet / Opus by how checkable the task is, with escalation | More moving parts than one model |
+| Orchestration (D-51) | LangGraph graph over the same stage functions; review as interrupt/resume; LangChain client for model calls | Two more dependencies; kept switchable to plain code, and proven equivalent |
 | Queue (D-04, D-25, D-36) | A job table on the same Postgres with SKIP LOCKED and leases | Not a managed queue; enough for this scale, SQS designed |
 | Formats (D-13, D-37, D-38, D-40) | PDF, XLSX, Word, text, images, zips, the email body; others flagged UNSUPPORTED with the reason | TIFF, HEIC, `.doc`, `.msg` not read |
 
@@ -377,3 +384,39 @@ The submission page is ordered for review (D-41 to D-43):
 - **Conflicts** show every source value and a suggestion (and say how it was chosen). Where there's nothing to choose
   (a claim on an unscheduled vehicle or driver, a listed term without a loss run), the page gives the next step and the
   underwriter acknowledges it with a note.
+
+## 11. LangGraph and LangChain (D-51)
+
+The stages in section 3 are plain functions (`pipeline.STAGES`). With `PIPELINE_ENGINE=graph` they run as a LangGraph
+`StateGraph` (`app/graph.py`); this diagram is what `graph.mermaid()` draws from the compiled graph:
+
+```mermaid
+flowchart TD
+    START([start]) --> split --> classify --> extract --> commodities --> cross_check
+    cross_check -. IFTA rows don't add up .-> escalate_ifta[escalate_ifta<br/>re-read on Opus]
+    cross_check -. otherwise .-> confirm_ifta
+    escalate_ifta --> confirm_ifta --> conflicts --> rules --> analyst
+    analyst --> human_review{{human_review<br/>interrupt: wait for the underwriter}}
+    human_review -. correction / conflict decision / re-run rules .-> human_review
+    human_review -. regenerate .-> reanalyze --> human_review
+```
+
+| LangGraph feature | Used for | Notes |
+|---|---|---|
+| Nodes | One per stage, each with its own session, committed after the node | The `code` engine runs the identical functions in the same order (tested) |
+| Conditional edge | IFTA returns whose rows don't add up go through `escalate_ifta` | Skipped when the transcribe tier is already the escalation model |
+| Checkpointer | `PostgresSaver` on the app's Postgres (tables `checkpoints`, `checkpoint_writes`); `InMemorySaver` with SQLite | The run's small state (`known_drivers`, `failed_ifta`, `last_action`) is saved after every node; thread `submission-<id>` |
+| `interrupt()` / `Command(resume=…)` | Human review: the run pauses after the analyst and waits, durably, for the underwriter | Web actions resume it synchronously; a regenerate resumes it in a worker; a refused action is recorded and reported, not raised (a raising node would replay it on the next resume) |
+
+What stays outside the graph, on purpose: the **job queue** still decides which worker runs a job and takes over a
+crashed one (a reprocess deletes the thread and starts over, as before); the **cache and cost ledger** stay in
+`llm.structured_call`.
+
+**LangChain:** with `LLM_CLIENT=langchain`, a cache miss is sent by `ChatAnthropic` (langchain-anthropic) instead of the
+SDK call. Tests prove the payload is byte-identical (system prompt, content and image blocks, `output_config` with effort
+and JSON schema, fallback betas and `extra_body`); the cache key is computed before either client, so cached answers
+are shared and every ledger line records which client sent it.
+
+**Proof of equivalence** (RUN_LOG LG1): the five eval sets reprocessed through the graph hit the cache on every
+page-level call and kept every score; a fully live run of held-out #3 through LangGraph and LangChain scored 69/69.
+**Rollback:** `PIPELINE_ENGINE=code`, `LLM_CLIENT=sdk`.

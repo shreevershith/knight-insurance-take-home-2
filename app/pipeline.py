@@ -67,88 +67,150 @@ def run(submission_id: int, claimed: bool = False) -> None:
     if not claimed and not claim(submission_id):
         log.warning("submission already processing; not started twice", submission_id=submission_id)
         return
+    if config.PIPELINE_ENGINE == "graph":
+        from app import graph  # the same stages as nodes of a LangGraph graph (D-51)
+        return graph.run(submission_id)
     db = SessionLocal()
     sub = db.get(Submission, submission_id)
-    label = f"-{config.RUN_LABEL}" if config.RUN_LABEL else ""
-    llm.run_id.set(f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}{label}")
+    _start_run_id(submission_id)
     try:
-        reset_for_reprocess(db, sub)
-        progress(db, sub, "Splitting files into pages")
-        for d in sub.documents:
-            if d.status == "UNSUPPORTED" and d.error.startswith("unsupported file type") and not d.pages:
-                d.status, d.error = "OK", ""  # a format added since the last run (e.g. .docx) is tried again
-        docs = [d for d in sub.documents if d.status == "OK"]
-        for d in docs:
-            if not d.pages:
-                split_pages(db, d)
-        db.commit()
-        db.expire_all()  # reload relationships so the new Page rows are visible
-        for d in sub.documents:
-            if d.status in ("DUPLICATE", "UNREADABLE", "UNSUPPORTED"):
-                progress(db, sub, f"{d.filename}: {d.status} {d.error or ''}".strip(), "WARN")
-
-        pages = [p for d in sub.documents if d.status == "OK" for p in d.pages]
-        progress(db, sub, f"Classifying {len(pages)} pages by content ({config.LLM_CONCURRENCY} at a time)")
-        _classify_all(db, sub, pages)
-        _inherit_continuations(sub)
-        db.commit()
-
-        progress(db, sub, "Extracting fields with evidence")
-        # The model calls run in parallel; keys, scoring and storage then run in page order, because
-        # entity keys carry over between pages of a document (a driver's MVR, an IFTA return's quarter).
-        prepared = _prepare_facts(sub, [d for d in sub.documents if d.status == "OK"])
-        known_drivers: list[dict] = []
-        for d in sub.documents:
-            if d.status != "OK":
+        state: dict = {}
+        for stage in STAGES:
+            if stage is stage_escalate_ifta and not needs_ifta_escalation(state):
                 continue
-            page_ctx = {"doc_id": d.id}
-            for p in d.pages:
-                _extract(db, sub, d, p, page_ctx, known_drivers, prepared.get(p.id))
-        db.commit()
-
-        # before human decisions are re-applied, so a corrected category wins over the new one (D-49)
-        progress(db, sub, "Sorting commodities against the prohibited cargo list")
-        try:
-            commodities.classify(db, sub)
-        except llm.LLMError as exc:
-            progress(db, sub, f"Commodity sorting failed ({exc}); the rules use keywords only", "WARN")
-        db.commit()
-
-        reapplied = reapply_human_decisions(db, sub.id)
-        if reapplied:
-            progress(db, sub, f"Re-applied human decisions over {reapplied} re-extracted values")
-        progress(db, sub, "Cross-checking values across documents")
-        _cross_document_confirmation(db, sub.id)
-        _loss_runs_confirmed_by_listing(db, sub.id)
-        failed = _ifta_reconciliation(db, sub.id)
-        if failed and config.route("transcribe")[0] != config.ESCALATION_MODEL:
-            _escalate_ifta(db, sub, failed, known_drivers)
-            failed = _ifta_reconciliation(db, sub.id)
-        if failed:
-            progress(db, sub, f"IFTA return(s) {', '.join(failed)} not confirmed: rows don't match a printed "
-                              "total (or none was found). Their values stay LOW_CONFIDENCE.", "WARN")
-        db.commit()
-
-        progress(db, sub, "Detecting conflicts and duplicates")
-        found = conflicts.detect(db, sub.id)
-        db.commit()
-        progress(db, sub, f"{len(found)} conflicts/duplicates found")
-
-        from app.rules.engine import evaluate  # local import: engine imports pipeline helpers
-        progress(db, sub, "Applying guideline rules")
-        evaluate(db, sub, actor="system")
-        db.commit()
-
-        progress(db, sub, "AI analyst: summary, concerns, recommendations")
-        _analyze_and_finish(db, sub)
+            state.update(stage(db, sub, state) or {})
     except Exception as exc:
-        db.rollback()
-        sub = db.get(Submission, submission_id)
-        sub.status = "FAILED"
-        progress(db, sub, f"Pipeline failed: {type(exc).__name__}: {exc}", "ERROR")
-        log.error("pipeline failed", submission_id=submission_id, trace=traceback.format_exc())
+        fail(db, submission_id, exc)
     finally:
         db.close()
+
+
+def _start_run_id(submission_id: int) -> None:
+    label = f"-{config.RUN_LABEL}" if config.RUN_LABEL else ""
+    llm.run_id.set(f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}{label}")
+
+
+def fail(db, submission_id: int, exc: Exception) -> None:
+    """Any unexpected error: the submission is FAILED, with the reason in its log."""
+    db.rollback()
+    sub = db.get(Submission, submission_id)
+    sub.status = "FAILED"
+    progress(db, sub, f"Pipeline failed: {type(exc).__name__}: {exc}", "ERROR")
+    log.error("pipeline failed", submission_id=submission_id, trace=traceback.format_exc())
+
+
+# ---------------------------------------------------------------- stages (D-51)
+# One run is these stages in order. Each takes the session, the submission and the run's small state (what a
+# later stage needs from an earlier one) and returns its additions to that state. `run` calls them in order
+# (PIPELINE_ENGINE=code); app/graph.py makes each one a LangGraph node (PIPELINE_ENGINE=graph).
+
+def stage_split(db, sub, state) -> dict:
+    reset_for_reprocess(db, sub)
+    progress(db, sub, "Splitting files into pages")
+    for d in sub.documents:
+        if d.status == "UNSUPPORTED" and d.error.startswith("unsupported file type") and not d.pages:
+            d.status, d.error = "OK", ""  # a format added since the last run (e.g. .docx) is tried again
+    docs = [d for d in sub.documents if d.status == "OK"]
+    for d in docs:
+        if not d.pages:
+            split_pages(db, d)
+    db.commit()
+    db.expire_all()  # reload relationships so the new Page rows are visible
+    for d in sub.documents:
+        if d.status in ("DUPLICATE", "UNREADABLE", "UNSUPPORTED"):
+            progress(db, sub, f"{d.filename}: {d.status} {d.error or ''}".strip(), "WARN")
+    return {}
+
+
+def stage_classify(db, sub, state) -> dict:
+    pages = [p for d in sub.documents if d.status == "OK" for p in d.pages]
+    progress(db, sub, f"Classifying {len(pages)} pages by content ({config.LLM_CONCURRENCY} at a time)")
+    _classify_all(db, sub, pages)
+    _inherit_continuations(sub)
+    db.commit()
+    return {}
+
+
+def stage_extract(db, sub, state) -> dict:
+    progress(db, sub, "Extracting fields with evidence")
+    # The model calls run in parallel; keys, scoring and storage then run in page order, because
+    # entity keys carry over between pages of a document (a driver's MVR, an IFTA return's quarter).
+    prepared = _prepare_facts(sub, [d for d in sub.documents if d.status == "OK"])
+    known_drivers: list[dict] = []
+    for d in sub.documents:
+        if d.status != "OK":
+            continue
+        page_ctx = {"doc_id": d.id}
+        for p in d.pages:
+            _extract(db, sub, d, p, page_ctx, known_drivers, prepared.get(p.id))
+    db.commit()
+    return {"known_drivers": known_drivers}
+
+
+def stage_commodities(db, sub, state) -> dict:
+    # before human decisions are re-applied, so a corrected category wins over the new one (D-49)
+    progress(db, sub, "Sorting commodities against the prohibited cargo list")
+    try:
+        commodities.classify(db, sub)
+    except llm.LLMError as exc:
+        progress(db, sub, f"Commodity sorting failed ({exc}); the rules use keywords only", "WARN")
+    db.commit()
+    return {}
+
+
+def stage_cross_check(db, sub, state) -> dict:
+    reapplied = reapply_human_decisions(db, sub.id)
+    if reapplied:
+        progress(db, sub, f"Re-applied human decisions over {reapplied} re-extracted values")
+    progress(db, sub, "Cross-checking values across documents")
+    _cross_document_confirmation(db, sub.id)
+    _loss_runs_confirmed_by_listing(db, sub.id)
+    return {"failed_ifta": _ifta_reconciliation(db, sub.id)}
+
+
+def needs_ifta_escalation(state) -> bool:
+    """IFTA rows that don't add up are re-read on the escalation model, unless that already read them."""
+    return bool(state.get("failed_ifta")) and config.route("transcribe")[0] != config.ESCALATION_MODEL
+
+
+def stage_escalate_ifta(db, sub, state) -> dict:
+    _escalate_ifta(db, sub, state["failed_ifta"], state["known_drivers"])
+    return {"failed_ifta": _ifta_reconciliation(db, sub.id)}
+
+
+def stage_confirm_ifta(db, sub, state) -> dict:
+    failed = state.get("failed_ifta")
+    if failed:
+        progress(db, sub, f"IFTA return(s) {', '.join(failed)} not confirmed: rows don't match a printed "
+                          "total (or none was found). Their values stay LOW_CONFIDENCE.", "WARN")
+    db.commit()
+    return {}
+
+
+def stage_conflicts(db, sub, state) -> dict:
+    progress(db, sub, "Detecting conflicts and duplicates")
+    found = conflicts.detect(db, sub.id)
+    db.commit()
+    progress(db, sub, f"{len(found)} conflicts/duplicates found")
+    return {}
+
+
+def stage_rules(db, sub, state) -> dict:
+    from app.rules.engine import evaluate  # local import: engine imports pipeline helpers
+    progress(db, sub, "Applying guideline rules")
+    evaluate(db, sub, actor="system")
+    db.commit()
+    return {}
+
+
+def stage_analyst(db, sub, state) -> dict:
+    progress(db, sub, "AI analyst: summary, concerns, recommendations")
+    _analyze_and_finish(db, sub)
+    return {}
+
+
+STAGES = [stage_split, stage_classify, stage_extract, stage_commodities, stage_cross_check, stage_escalate_ifta,
+          stage_confirm_ifta, stage_conflicts, stage_rules, stage_analyst]
 
 
 def _analyze_and_finish(db, sub: Submission) -> None:
@@ -171,6 +233,10 @@ def run_analysis(submission_id: int, claimed: bool = False) -> None:
     sub = db.get(Submission, submission_id)
     llm.run_id.set(f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-analysis")
     try:
+        if config.PIPELINE_ENGINE == "graph":
+            from app import graph
+            if graph.regenerate(submission_id):   # resumes the paused graph through its analyst node (D-51)
+                return
         progress(db, sub, "AI analyst: re-running on the reviewed values")
         _analyze_and_finish(db, sub)
     except Exception as exc:

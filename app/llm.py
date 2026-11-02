@@ -13,6 +13,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dataclasses import dataclass
+
 import anthropic
 
 from app import config
@@ -56,6 +58,56 @@ def client() -> anthropic.Anthropic:
     return _client
 
 
+@dataclass
+class _Reply:
+    """What structured_call needs from a response, whichever client sent the request."""
+    model: str
+    stop_reason: str | None
+    input_tokens: int
+    output_tokens: int
+    text: str | None
+    request_id: str | None
+
+
+def _send_sdk(kwargs: dict) -> _Reply:
+    api = client().beta.messages if "betas" in kwargs else client().messages
+    response = api.create(**kwargs)
+    return _Reply(response.model, response.stop_reason, response.usage.input_tokens, response.usage.output_tokens,
+                  next((b.text for b in response.content if b.type == "text"), None),
+                  getattr(response, "_request_id", None))
+
+
+_chat_models: dict[tuple, object] = {}
+_chat_lock = threading.Lock()
+
+
+def _send_langchain(kwargs: dict) -> _Reply:
+    """The same request through langchain-anthropic's ChatAnthropic (D-51). It builds the identical payload
+    (system, content blocks, output_config, betas, extra_body; checked in tests) and raises the SDK's own
+    exceptions, so the error handling below is shared. One model object per (model, max_tokens, betas, extras)."""
+    from langchain_anthropic import ChatAnthropic
+    from langchain_core.messages import HumanMessage, SystemMessage
+    key = (kwargs["model"], kwargs["max_tokens"], tuple(kwargs.get("betas", ())),
+           json.dumps(kwargs.get("extra_body"), sort_keys=True))
+    with _chat_lock:
+        chat = _chat_models.get(key)
+        if chat is None:
+            if not config.llm_configured():
+                raise LLMError("ANTHROPIC_API_KEY is not set (see .env.example)")
+            extra = {"extra_body": kwargs["extra_body"]} if "extra_body" in kwargs else {}
+            chat = ChatAnthropic(model=kwargs["model"], max_tokens=kwargs["max_tokens"], betas=kwargs.get("betas"),
+                                 timeout=config.LLM_TIMEOUT_SECONDS, max_retries=3, model_kwargs=extra)
+            _chat_models[key] = chat
+    message = chat.invoke([SystemMessage(kwargs["system"]), HumanMessage(content=kwargs["messages"][0]["content"])],
+                          output_config=kwargs["output_config"])
+    meta = message.response_metadata
+    content = message.content
+    text = content if isinstance(content, str) else next(
+        (b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"), None)
+    return _Reply(meta.get("model", kwargs["model"]), meta.get("stop_reason"), meta["usage"]["input_tokens"],
+                  meta["usage"]["output_tokens"], text, meta.get("id"))
+
+
 def image_block(path: str | Path) -> dict:
     data = Path(path).read_bytes()
     suffix = Path(path).suffix.lower()
@@ -97,13 +149,11 @@ def structured_call(*, task: str, system: str, content: list[dict], schema: dict
         # Server-side refusal fallback. Not yet a typed SDK parameter in this SDK version.
         kwargs["betas"] = ["server-side-fallback-2026-07-01"]
         kwargs["extra_body"] = {"fallbacks": config.CLAUDE_FALLBACKS}
-        api = client().beta.messages
-    else:
-        api = client().messages
+    send = _send_langchain if config.LLM_CLIENT == "langchain" else _send_sdk
 
     started = time.monotonic()
     try:
-        response = api.create(**kwargs)
+        response = send(kwargs)
     except anthropic.AuthenticationError as exc:
         raise LLMError(f"authentication failed: {exc.message}") from exc
     except anthropic.BadRequestError as exc:
@@ -117,15 +167,15 @@ def structured_call(*, task: str, system: str, content: list[dict], schema: dict
     except anthropic.APIConnectionError as exc:
         raise LLMError(f"connection error: {exc}") from exc
 
-    usage = response.usage
-    _ledger(**meta, cache_hit=False, input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-            cost_usd=round(config.cost_usd(model, usage.input_tokens, usage.output_tokens), 5),
-            seconds=round(time.monotonic() - started, 1), stop_reason=response.stop_reason)
+    _ledger(**meta, cache_hit=False, input_tokens=response.input_tokens, output_tokens=response.output_tokens,
+            cost_usd=round(config.cost_usd(model, response.input_tokens, response.output_tokens), 5),
+            seconds=round(time.monotonic() - started, 1), stop_reason=response.stop_reason,
+            client=config.LLM_CLIENT)
     if response.stop_reason == "refusal":
         raise LLMError("model declined the request")
     if response.stop_reason == "max_tokens":
         raise LLMError("output truncated at max_tokens")
-    text = next((b.text for b in response.content if b.type == "text"), None)
+    text = response.text
     if text is None:
         raise LLMError(f"no text block in response (stop_reason={response.stop_reason})")
     try:
@@ -133,7 +183,7 @@ def structured_call(*, task: str, system: str, content: list[dict], schema: dict
     except json.JSONDecodeError as exc:
         raise LLMError(f"invalid JSON from model: {exc}") from exc
 
-    log.info("llm call", task=task, model=response.model, request_id=response._request_id,
-             input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, **ctx)
+    log.info("llm call", task=task, model=response.model, request_id=response.request_id,
+             input_tokens=response.input_tokens, output_tokens=response.output_tokens, **ctx)
     cache_path.write_text(json.dumps(data, indent=1), encoding="utf-8")
     return data

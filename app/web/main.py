@@ -13,7 +13,7 @@ from urllib.parse import quote, urlparse
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app import config, jobs, pipeline, review
+from app import config, graph, jobs, pipeline, review
 from app.config import data_path
 from app.web.labels import (action_label, capitalize_first, check_lines, doc_type_label, entity_labels, field_label,
                             label_for, problems_only,
@@ -340,35 +340,40 @@ def page_image(page_id: int):
         return FileResponse(data_path(page.image_path))
 
 
+def _review(sub_id: int | None, action: dict, missing: str) -> str:
+    """Apply a review action (D-51: it resumes the submission's paused graph, or runs the review function
+    directly when there is none) and return the new decision. `missing`: the error when the target doesn't exist."""
+    try:
+        if sub_id is None:
+            raise review.ReviewError(missing)
+        graph.apply_review(sub_id, {**action, "actor": REVIEWER})
+    except review.ReviewError as exc:
+        raise _review_error(exc)
+    with SessionLocal() as db:
+        return db.get(Submission, sub_id).decision
+
+
 @app.post("/fields/{field_id}/override")
 def override_field(field_id: int, value: str = Form(...), reason: str = Form(...)):
     with SessionLocal() as db:
-        try:
-            sub = review.override_field(db, field_id, value, reason, REVIEWER)
-        except review.ReviewError as exc:
-            raise _review_error(exc)
-        db.commit()
-        return _back(f"/submissions/{sub.id}", f"Value updated. Rules re-run: {sub.decision}", "#rules")
+        f = db.get(Field, field_id)
+        sub_id = f.submission_id if f else None
+    decision = _review(sub_id, {"kind": "override", "field_id": field_id, "value": value, "reason": reason},
+                       "field not found")
+    return _back(f"/submissions/{sub_id}", f"Value updated. Rules re-run: {decision}", "#rules")
 
 
 @app.post("/conflicts/{conflict_id}/resolve")
 def resolve_conflict(conflict_id: int, field_id: int = Form(...), reason: str = Form(...)):
     with SessionLocal() as db:
-        try:
-            sub = review.resolve_conflict(db, conflict_id, field_id, reason, REVIEWER)
-        except review.ReviewError as exc:
-            raise _review_error(exc)
-        db.commit()
-        return _back(f"/submissions/{sub.id}", f"Conflict resolved. Rules re-run: {sub.decision}", "#conflicts")
+        c = db.get(Conflict, conflict_id)
+        sub_id = c.submission_id if c else None
+    decision = _review(sub_id, {"kind": "resolve", "conflict_id": conflict_id, "field_id": field_id,
+                                "reason": reason}, "conflict not found or not open")
+    return _back(f"/submissions/{sub_id}", f"Conflict resolved. Rules re-run: {decision}", "#conflicts")
 
 
 @app.post("/submissions/{sub_id}/rerun-rules")
 def rerun_rules(sub_id: int):
-    with SessionLocal() as db:
-        try:
-            review.rerun_rules(db, sub_id, REVIEWER)
-        except review.ReviewError as exc:
-            raise _review_error(exc)
-        db.commit()
-        decision = db.get(Submission, sub_id).decision
+    decision = _review(sub_id, {"kind": "rerun_rules"}, "submission not found")
     return _back(f"/submissions/{sub_id}", f"Rules re-run: {decision}", "#rules")

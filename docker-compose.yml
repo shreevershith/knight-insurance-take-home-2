@@ -25,6 +25,10 @@ services:
       DATABASE_URL: postgresql+psycopg://knight:${POSTGRES_PASSWORD}@db:5432/knight
       DATA_DIR: /app/data
       JOB_MODE: queue   # the web app only enqueues; the worker service runs the jobs (D-36)
+      # D-51: LangGraph runs the stages (checkpoints in this Postgres, review as interrupt/resume) and
+      # LangChain's ChatAnthropic sends model requests. Roll back with PIPELINE_ENGINE=code / LLM_CLIENT=sdk.
+      PIPELINE_ENGINE: ${PIPELINE_ENGINE:-graph}
+      LLM_CLIENT: ${LLM_CLIENT:-langchain}
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:

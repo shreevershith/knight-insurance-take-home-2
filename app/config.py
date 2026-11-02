@@ -27,6 +27,12 @@ LLM_TIMEOUT_SECONDS = float(_env("LLM_TIMEOUT_SECONDS", "180"))
 # Page calls of one job run this many at a time (D-36): a run is almost all model wait, one page at a
 # time. Bounded by the API rate limit, not by CPU. 1 = sequential.
 LLM_CONCURRENCY = max(1, int(_env("LLM_CONCURRENCY", "6")))
+# D-51. Who sends a model request on a cache miss: "sdk" (the Anthropic SDK directly) or "langchain"
+# (langchain-anthropic's ChatAnthropic). The request, cache key, ledger and errors are the same either way.
+LLM_CLIENT = _env("LLM_CLIENT", "sdk")
+# D-51. Who runs the stages: "code" (pipeline.run calls them in order) or "graph" (a LangGraph StateGraph with
+# a checkpointer, and human review as interrupt/resume). Same stage functions either way.
+PIPELINE_ENGINE = _env("PIPELINE_ENGINE", "code")
 
 # Jobs (D-36). "thread": the web process runs each job in a background thread (no worker needed).
 # "queue": the web app only enqueues; app/worker.py processes run them (docker-compose.yml).

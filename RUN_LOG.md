@@ -507,3 +507,19 @@ Behaviour check: 97 tests pass; page HTML for #5, #8, #10, #47 and `/ops` captur
 (identical, whitespace aside); a regenerate on #8 hit the cache for both the analyst and the draft ($0), so the model
 inputs are unchanged. The first version sorted rule rows by id in the shared helper, which reordered the analyst's input
 and missed the cache on #5 ($0.25); the helper now returns rows exactly as the old query did (D-50).
+
+### LangGraph and LangChain (LG1, 11/03)
+
+Docker with `PIPELINE_ENGINE=graph`, `LLM_CLIENT=langchain` (D-51).
+
+| Check | Result |
+|---|---|
+| Five eval sets reprocessed through the graph | 173 model calls: all 163 page-level calls (classify, extract, commodities) were **cache hits**, so the graph fed the model exactly what the old code did; the 10 misses are the analyst and draft, whose input cites new field ids after any reprocess (same as before D-51), and they ran **live through LangChain** (Opus with fallback betas, Sonnet) |
+| Eval scores after | 87/87, 72/72, 70/71 (same `mailing_state` miss), 69/69, 67/67: unchanged |
+| Held-out #3 fully live (empty cache, `LLM_CACHE_DIR=llm_cache_live_lc`), submission #48 | **69/69**, QUOTE_AFTER_CHECKS, Fleet; 70 s; $0.20; 45 calls, every one through `ChatAnthropic` (Haiku text, Sonnet vision, Opus analyst, Sonnet draft) |
+| Review through the paused graph (#48) | blank reason refused (400) and the graph stays paused; correction, rules re-run and regenerate (worker) all resume it and it pauses again; 14 checkpoints in Postgres |
+| Submission processed before the graph (#47) | conflict decision applied directly, as before |
+| Worker stopped mid-run (#5, during the analyst) | job taken over (attempt 2), finished through the graph, paused for review; sample 87/87 |
+
+Tests: 107 (graph order, branch, pause and resume, refused action, regenerate, reprocess, and the LangChain payload
+compared with the SDK's).
