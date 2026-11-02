@@ -136,11 +136,11 @@
 .grps { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 20px; }
 .grp { border: 1px solid var(--line); background: var(--surface); padding: 12px 14px; border-top: 3px solid var(--gray-ln); }
 .grp.concerns { border-top-color: var(--flag); } .grp.concerns h3 { color: var(--flag); }
-.grp h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.grp h3, .reply-hd h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
 .grp .it { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .reply { border: 1px solid var(--line); background: var(--surface); padding: 12px 14px; margin-top: 12px; border-top: 3px solid var(--ovr); }
 .reply-hd { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
-.reply-hd h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ovr); }
+.reply-hd h3 { margin-bottom: 0; color: var(--ovr); }
 .reply-hd .btn { margin-left: auto; }
 .reply-l { display: block; font-size: 12px; color: var(--muted); margin-top: 10px; }
 .reply-l input, .reply-l textarea { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--line-2);
@@ -401,16 +401,17 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   <div class="disc" title="Rules version: {{ sub.rules_version or '—' }}">Decision from the guideline rules (version {{ (sub.rules_version or '').split('+')[0].rsplit('-v', 1)[-1] or '—' }}). The AI summary is advisory and never changes the decision.</div>
 </section>
 
+{% macro review_item(r, cls, pill, label, message) %}<li class="ai {{ cls }}">
+      <div><span class="pill {{ pill }}">{{ label }}</span></div>
+      <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r" title="Rule {{ r.rule_id }}">{{ message }}</div></div>
+      <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endmacro %}
 <section id="sec-review">
   <div class="sec-hd"><h2>To review</h2>{% if todo %}<span class="aside">{{ todo }} item(s) need a person</span>{% endif %}</div>
   {% if todo %}
   {% if failing %}{% set declines = failing|selectattr('outcome', 'equalto', 'DECLINE')|list %}
   <h3 class="rv-h">{{ 'Reasons to decline or refer' if declines else 'Reasons to refer' }} <span>{{ failing|length }}</span></h3>
   <ul class="actions-list">
-    {% for r in failing|sort(attribute='outcome') %}<li class="ai {{ 'e-fail' if r.outcome in ('DECLINE', 'ERROR') else 'e-refer' }}">
-      <div><span class="pill {{ r.outcome }}">{{ {'DECLINE': 'Decline', 'ERROR': 'Rule error'}.get(r.outcome, 'Refer') }}</span></div>
-      <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r" title="Rule {{ r.rule_id }}">{{ r.message.split(' | OK: ')[0] }}</div></div>
-      <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
+    {% for r in failing|sort(attribute='outcome') %}{{ review_item(r, 'e-fail' if r.outcome in ('DECLINE', 'ERROR') else 'e-refer', r.outcome, {'DECLINE': 'Decline', 'ERROR': 'Rule error'}.get(r.outcome, 'Refer'), problems_only(r.message)) }}{% endfor %}
   </ul>{% endif %}
   {% if open_conflicts %}
   <h3 class="rv-h">Documents that disagree <span>{{ open_conflicts|length }}</span></h3>
@@ -423,18 +424,12 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   {% if verify %}
   <h3 class="rv-h">Verify before quoting <span>{{ verify|length }}</span><em>needs data no submission contains</em></h3>
   <ul class="actions-list">
-    {% for r in verify %}<li class="ai e-ver">
-      <div><span class="pill VERIFY">Verify first</span></div>
-      <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r" title="Rule {{ r.rule_id }}">{{ r.message }}</div></div>
-      <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
+    {% for r in verify %}{{ review_item(r, 'e-ver', 'VERIFY', 'Verify first', r.message) }}{% endfor %}
   </ul>{% endif %}
   {% if not_eval %}
   <h3 class="rv-h">Couldn't be checked <span>{{ not_eval|length }}</span><em>a person decides</em></h3>
   <ul class="actions-list">
-    {% for r in not_eval %}<li class="ai e-unk">
-      <div><span class="pill NOT_EVALUATED">Unknown</span></div>
-      <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r" title="Rule {{ r.rule_id }}">{{ r.message.split(' | OK: ')[0] }}</div></div>
-      <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
+    {% for r in not_eval %}{{ review_item(r, 'e-unk', 'NOT_EVALUATED', 'Unknown', problems_only(r.message)) }}{% endfor %}
   </ul>{% endif %}
   {% else %}<div class="allclear"><span class="tick">✓</span>Nothing failed, nothing conflicting. Every rule passed.</div>{% endif %}
 </section>

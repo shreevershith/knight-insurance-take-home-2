@@ -148,6 +148,16 @@ STATUS_LABELS = {
 }
 
 
+def capitalize_first(text: str) -> str:
+    """'DOT number' stays 'DOT number' (str.capitalize would lowercase the rest)."""
+    return (text[:1].upper() + text[1:]) if text else text
+
+
+def problems_only(message: str) -> str:
+    """A per-driver rule message without its passing part (engine joins that on ' | OK: ')."""
+    return message.split(" | OK: ")[0]
+
+
 def field_label(name: str) -> str:
     return FIELD_LABELS.get(name, (name or "").replace("_", " "))
 

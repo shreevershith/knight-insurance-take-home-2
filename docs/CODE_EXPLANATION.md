@@ -17,7 +17,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 | File | Responsibility | Key names |
 |---|---|---|
 | `app/config.py` | Every setting, read from `.env` / environment. Paths (`DATA_DIR`, blobs, page images, LLM cache, cost ledger), database URL (Postgres or SQLite fallback), model routing per task, prices, job and concurrency settings. | `route(tier)`, `TIER_DEFAULTS`, `cost_usd`, `stored_path` / `data_path`, `JOB_MODE`, `LLM_CONCURRENCY` |
-| `app/db.py` | SQLAlchemy models and the audit helper. Tables: `submission`, `document`, `page`, `field`, `conflict`, `rule_result`, `audit_event`, `job_log`, `job`. `init_db()` creates missing tables. | `Submission`, `Document`, `Page`, `Field`, `Conflict`, `RuleResult`, `Job`, `audit()` |
+| `app/db.py` | SQLAlchemy models and the audit helper. Tables: `submission`, `document`, `page`, `field`, `conflict`, `rule_result`, `audit_event`, `job_log`, `job`. `init_db()` creates missing tables. | `Submission`, `Document`, `Page`, `Field`, `Conflict`, `RuleResult`, `Job`, `audit()`, `latest_rule_results()` |
 | `app/llm.py` | The only place that calls Claude. One request → one JSON object matching a schema (structured output). Picks the model from the task's tier, or the escalation model. Caches each response on disk by a hash of the exact request; writes one cost-ledger line per call (cache hits too). Turns API failures, refusals and truncation into `LLMError`. | `structured_call`, `image_block`, `tier_for`, `run_id` (a `ContextVar`), `LLMError` |
 | `app/log.py` | JSON logs with context (submission, page). Masks SSNs, FEINs, license numbers and full dates before anything is written. | `setup_logging`, `get_logger`, `mask_pii` |
 

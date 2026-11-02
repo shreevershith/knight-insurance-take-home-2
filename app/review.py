@@ -4,10 +4,10 @@ Kept out of the web routes so the worker and tests use the same code. Every huma
 stored as a `method="human"` Field keyed by (entity_key, field name), never by row id, so it
 survives re-extraction (pipeline.reapply_human_decisions). Originals are never overwritten.
 """
-from app.db import Conflict, Field, RuleResult, Submission, audit
+from app.db import Conflict, Field, Submission, audit, latest_rule_results
 from app.extract.spec import SPEC
 from app.rules.engine import evaluate
-from app.web.labels import entity_labels, field_label, label_for
+from app.web.labels import capitalize_first, entity_labels, field_label, label_for
 
 FACT_FIELDS = {name for groups in SPEC.values() for _, _, fields in groups.values() for name in fields}
 
@@ -56,13 +56,16 @@ def _entity_name(db, submission_id: int, entity_key: str) -> str:
 
 def _fact_name(db, submission_id: int, entity_key: str, name: str) -> str:
     """'Agency phone (Applicant)', 'Date of birth (Luis E Morales)': how the page names this fact."""
-    label = field_label(name)
-    return f"{label[:1].upper()}{label[1:]} ({_entity_name(db, submission_id, entity_key)})"
+    return f"{capitalize_first(field_label(name))} ({_entity_name(db, submission_id, entity_key)})"
+
+
+def _require_reason(reason: str) -> None:
+    if not reason.strip():
+        raise ReviewError("a reason is required")
 
 
 def override_field(db, field_id: int, value: str, reason: str, actor: str) -> Submission:
-    if not reason.strip():
-        raise ReviewError("a reason is required")
+    _require_reason(reason)
     old = db.get(Field, field_id)
     if old is None:
         raise ReviewError("field not found")
@@ -85,8 +88,7 @@ def override_field(db, field_id: int, value: str, reason: str, actor: str) -> Su
 
 
 def resolve_conflict(db, conflict_id: int, field_id: int, reason: str, actor: str) -> Submission:
-    if not reason.strip():
-        raise ReviewError("a reason is required")
+    _require_reason(reason)
     c = db.get(Conflict, conflict_id)
     if c is None or c.status != "OPEN":
         raise ReviewError("conflict not found or not open")
@@ -141,12 +143,7 @@ def rerun_rules(db, submission_id: int, actor: str) -> Submission:
 
 def _outcomes(db, submission_id: int) -> dict[str, str]:
     """rule_id -> outcome of the latest rules run."""
-    last = (db.query(RuleResult).filter(RuleResult.submission_id == submission_id)
-            .order_by(RuleResult.id.desc()).first())
-    if last is None:
-        return {}
-    return {r.rule_id: r.outcome for r in db.query(RuleResult).filter(RuleResult.submission_id == submission_id,
-                                                                      RuleResult.run_id == last.run_id)}
+    return {r.rule_id: r.outcome for r in latest_rule_results(db, submission_id)}
 
 
 def _supersede_extracted(db, submission_id, entity_key, name, extra_ids=()) -> list[int]:

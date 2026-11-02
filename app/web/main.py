@@ -15,9 +15,10 @@ from fastapi.templating import Jinja2Templates
 
 from app import config, jobs, pipeline, review
 from app.config import data_path
-from app.web.labels import (action_label, check_lines, doc_type_label, entity_labels, field_label, label_for,
+from app.web.labels import (action_label, capitalize_first, check_lines, doc_type_label, entity_labels, field_label,
+                            label_for, problems_only,
                             method_label, plain_error, status_label)
-from app.db import (AuditEvent, Conflict, Document, Field, Job, JobLog, Page, RuleResult, SessionLocal, Submission,
+from app.db import (latest_rule_results, AuditEvent, Conflict, Document, Field, Job, JobLog, Page, RuleResult, SessionLocal, Submission,
                     audit, init_db, utcnow)
 from app.analyst import agent_email
 from app.intake import ingest_eml, ingest_files
@@ -117,10 +118,10 @@ def _summary_blocks(text: str) -> list[tuple[str, object]]:
 
 templates.env.filters["summary_blocks"] = _summary_blocks
 templates.env.globals["label_for"] = label_for
-for _fn in (action_label, check_lines, doc_type_label, field_label, method_label, plain_error, status_label):
+for _fn in (action_label, check_lines, doc_type_label, field_label, method_label, plain_error, problems_only,
+            status_label):
     templates.env.globals[_fn.__name__] = _fn
-# "DOT number" stays "DOT number" (Jinja's capitalize would lowercase the rest)
-templates.env.filters["capitalize_first"] = lambda text: (text[:1].upper() + text[1:]) if text else text
+templates.env.filters["capitalize_first"] = capitalize_first  # Jinja's capitalize would lowercase the rest
 templates.env.globals["model_chip"] = lambda: " · ".join(
     f"{t} {config.route(t)[0].replace('claude-', '').split('-')[0].capitalize()}" for t in config.TIERS)
 
@@ -130,6 +131,11 @@ def _utc_iso(at) -> str:
     SQLite returns naive ones that were stored as UTC."""
     at = at.astimezone(timezone.utc).replace(tzinfo=None) if at.tzinfo else at
     return at.isoformat() + "Z"
+
+
+def _review_error(exc: review.ReviewError) -> HTTPException:
+    """409 while a job runs (try again later), 400 for a bad request."""
+    return HTTPException(409 if "being processed" in str(exc) else 400, str(exc))
 
 
 def _back(url: str, message: str, anchor: str = "") -> RedirectResponse:
@@ -258,12 +264,10 @@ def show(request: Request, sub_id: int):
         conflicts = (db.query(Conflict).filter(Conflict.submission_id == sub_id, Conflict.status != "REPLACED")
                      .order_by(Conflict.id).all())
         replaced = db.query(Field).filter(Field.submission_id == sub_id, Field.status == "REPLACED").count()
-        last = db.query(RuleResult).filter(RuleResult.submission_id == sub_id).order_by(RuleResult.id.desc()).first()
-        rules = (db.query(RuleResult).filter(RuleResult.submission_id == sub_id, RuleResult.run_id == last.run_id)
-                 .order_by(RuleResult.id).all()) if last else []
+        rules = sorted(latest_rule_results(db, sub_id), key=lambda r: r.id)
         # what the previous rules run said, so the page shows what a re-run changed
-        before = (db.query(RuleResult).filter(RuleResult.submission_id == sub_id, RuleResult.run_id != last.run_id)
-                  .order_by(RuleResult.id.desc()).first()) if last else None
+        before = (db.query(RuleResult).filter(RuleResult.submission_id == sub_id, RuleResult.run_id != rules[0].run_id)
+                  .order_by(RuleResult.id.desc()).first()) if rules else None
         previous = {r.rule_id: r.outcome for r in db.query(RuleResult).filter(
             RuleResult.submission_id == sub_id, RuleResult.run_id == before.run_id)} if before else {}
         audits = db.query(AuditEvent).filter(AuditEvent.submission_id == sub_id).order_by(AuditEvent.id.desc()).all()
@@ -342,7 +346,7 @@ def override_field(field_id: int, value: str = Form(...), reason: str = Form(...
         try:
             sub = review.override_field(db, field_id, value, reason, REVIEWER)
         except review.ReviewError as exc:
-            raise HTTPException(409 if "being processed" in str(exc) else 400, str(exc))
+            raise _review_error(exc)
         db.commit()
         return _back(f"/submissions/{sub.id}", f"Value updated. Rules re-run: {sub.decision}", "#rules")
 
@@ -353,7 +357,7 @@ def resolve_conflict(conflict_id: int, field_id: int = Form(...), reason: str = 
         try:
             sub = review.resolve_conflict(db, conflict_id, field_id, reason, REVIEWER)
         except review.ReviewError as exc:
-            raise HTTPException(409 if "being processed" in str(exc) else 400, str(exc))
+            raise _review_error(exc)
         db.commit()
         return _back(f"/submissions/{sub.id}", f"Conflict resolved. Rules re-run: {sub.decision}", "#conflicts")
 
@@ -364,7 +368,7 @@ def rerun_rules(sub_id: int):
         try:
             review.rerun_rules(db, sub_id, REVIEWER)
         except review.ReviewError as exc:
-            raise HTTPException(409, str(exc))
+            raise _review_error(exc)
         db.commit()
         decision = db.get(Submission, sub_id).decision
     return _back(f"/submissions/{sub_id}", f"Rules re-run: {decision}", "#rules")

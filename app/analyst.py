@@ -7,7 +7,7 @@ import json
 
 from app import llm
 from app.conflicts import active_fields
-from app.db import Conflict, RuleResult, Submission
+from app.db import Conflict, Submission, latest_rule_results
 
 SYSTEM = """You are a senior commercial auto (trucking) underwriting analyst reviewing a submission
 that has already been extracted and checked by a deterministic rules engine.
@@ -47,9 +47,7 @@ SCHEMA = {
 def build_context(db, sub: Submission) -> tuple[dict, set[str]]:
     fields = active_fields(db, sub.id)
     conflicts = db.query(Conflict).filter(Conflict.submission_id == sub.id, Conflict.status != "REPLACED").all()
-    run = db.query(RuleResult).filter(RuleResult.submission_id == sub.id).order_by(RuleResult.id.desc()).first()
-    rules = db.query(RuleResult).filter(RuleResult.submission_id == sub.id,
-                                        RuleResult.run_id == run.run_id).all() if run else []
+    rules = latest_rule_results(db, sub.id)
     ids = set()
     entities = {}
     sources: dict[str, str] = {}  # "file p3" -> "S1": named once, not on every field

@@ -9,7 +9,8 @@ import json
 import re
 
 from app import llm
-from app.db import Conflict, RuleResult, Submission
+from app.db import Conflict, Submission, latest_rule_results
+from app.web.labels import problems_only
 
 SYSTEM = """You write a short email from a commercial auto underwriter at Knight Specialty Insurance to the
 insurance agent who sent a trucking submission. You get, already decided by checks in code: the decision, the
@@ -39,12 +40,10 @@ _CODES = re.compile(rf"\s*\({_REF}(?:[,;/ ]+{_REF})*\)|\b[A-Z]{{2,3}}-\d{{2}}\b"
 
 def asks(db, sub: Submission, analysis: dict) -> dict:
     """What the draft is about, chosen in code from the latest rules run, open conflicts and the analyst."""
-    run = db.query(RuleResult).filter(RuleResult.submission_id == sub.id).order_by(RuleResult.id.desc()).first()
-    rules = db.query(RuleResult).filter(RuleResult.submission_id == sub.id,
-                                        RuleResult.run_id == run.run_id).all() if run else []
+    rules = latest_rule_results(db, sub.id)
 
     def item(r):
-        return {"check": r.title, "finding": r.message.split(" | OK: ")[0]}
+        return {"check": r.title, "finding": problems_only(r.message)}
     conflicts = db.query(Conflict).filter(Conflict.submission_id == sub.id, Conflict.status == "OPEN").all()
     return {
         "decision": sub.decision,

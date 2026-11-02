@@ -187,3 +187,14 @@ def init_db() -> None:
 def audit(db, submission_id, actor, action, target="", before=None, after=None, reason=""):
     db.add(AuditEvent(submission_id=submission_id, actor=actor, action=action, target=target,
                       before=before or {}, after=after or {}, reason=reason))
+
+
+def latest_rule_results(db, submission_id) -> list[RuleResult]:
+    """The rows of the latest rules run ([] before the first run), unordered: the analyst's prompt (and so its
+    cache key) depends on this order, so sort in the caller when an order is needed."""
+    last = (db.query(RuleResult).filter(RuleResult.submission_id == submission_id)
+            .order_by(RuleResult.id.desc()).first())
+    if last is None:
+        return []
+    return db.query(RuleResult).filter(RuleResult.submission_id == submission_id,
+                                       RuleResult.run_id == last.run_id).all()

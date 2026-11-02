@@ -139,15 +139,8 @@ def run(submission_id: int, claimed: bool = False) -> None:
         evaluate(db, sub, actor="system")
         db.commit()
 
-        from app.analyst import analyze
         progress(db, sub, "AI analyst: summary, concerns, recommendations")
-        try:
-            sub.summary = analyze(db, sub)
-        except llm.LLMError as exc:
-            sub.summary = {"error": f"MODEL_ERROR: {exc}"}
-            progress(db, sub, f"AI analyst failed: {exc}", "ERROR")
-        sub.status = "DONE"
-        progress(db, sub, f"Done: {sub.decision} -> {sub.team}")
+        _analyze_and_finish(db, sub)
     except Exception as exc:
         db.rollback()
         sub = db.get(Submission, submission_id)
@@ -158,23 +151,28 @@ def run(submission_id: int, claimed: bool = False) -> None:
         db.close()
 
 
+def _analyze_and_finish(db, sub: Submission) -> None:
+    """The AI analysis (a model failure is recorded, not raised: the rules decision stands), then DONE."""
+    from app.analyst import analyze  # imported on use, as before
+    try:
+        sub.summary = analyze(db, sub)
+    except llm.LLMError as exc:
+        sub.summary = {"error": f"MODEL_ERROR: {exc}"}
+        progress(db, sub, f"AI analyst failed: {exc}", "ERROR")
+    sub.status = "DONE"
+    progress(db, sub, f"Done: {sub.decision} -> {sub.team}")
+
+
 def run_analysis(submission_id: int, claimed: bool = False) -> None:
     """Re-run only the AI analyst (after human review made its findings out of date)."""
     if not claimed and not claim(submission_id):
         return
-    from app.analyst import analyze
     db = SessionLocal()
     sub = db.get(Submission, submission_id)
     llm.run_id.set(f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-analysis")
     try:
         progress(db, sub, "AI analyst: re-running on the reviewed values")
-        try:
-            sub.summary = analyze(db, sub)
-        except llm.LLMError as exc:
-            sub.summary = {"error": f"MODEL_ERROR: {exc}"}
-            progress(db, sub, f"AI analyst failed: {exc}", "ERROR")
-        sub.status = "DONE"
-        progress(db, sub, f"Done: {sub.decision} -> {sub.team}")
+        _analyze_and_finish(db, sub)
     except Exception as exc:
         db.rollback()
         sub = db.get(Submission, submission_id)
