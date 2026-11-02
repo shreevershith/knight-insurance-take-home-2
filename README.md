@@ -31,7 +31,9 @@ decision, the reasons, and an AI-written summary they can verify.
 - **Checks in code.** VIN check digits, IFTA rows adding up to the printed total, agreement across documents, loss
   runs matching the application's prior-insurance listing.
 - **Conflicts surfaced, never silently resolved.** INC vs LLC, DOB mismatches, a claim on an unscheduled vehicle:
-  each shown with every source value and a suggestion, open until a person decides.
+  each shown with every source value and the document it came from, and a suggestion (the value most documents
+  agree on; on a tie, the more authoritative document; for a vehicle's make, the VIN). Open until a person decides;
+  where there's nothing to choose (a claim on an unscheduled driver), the person acknowledges it with a note.
 - **42 guideline rules** (`app/rules/knight_v1.yaml`), each quoting its clause. Unknown inputs refer and never pass;
   the three checks that need outside data (SAFER, border distance, the quoted premium) are listed as "check before
   quoting".
@@ -225,7 +227,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 - **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
   current scores are regression results; held-out #3 has not been used for any fix.
 - On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
-- 82 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
+- 83 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
 ## Project structure
 

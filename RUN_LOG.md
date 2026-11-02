@@ -450,3 +450,16 @@ the sideways CDL photo turned upright and read (DOB, expiration match the MVR). 
 
 Then the AI summaries of the other four submissions, marked out of date by the rules-version change, were
 regenerated (all current).
+
+### Review-page changes and reprocesses (RV1, 11/02)
+
+No rule, outcome or score changed (D-40 to D-43 are intake and display changes). Model calls made:
+
+| Run | What | Calls (cached) | Cost |
+|---|---|---|---|
+| `sub9-20261102T050159` | Your dry-run upload of the sample (#9) | 41 (40) | $0.237 |
+| `sub5-…T052454`, `sub9-…T052454` | Reprocess #5 and #9 so their conflicts use the new plain sentences | 41 (40) each | $0.223 + $0.234 |
+| `sub7-…T231040` + `sub7-…T231749` | The 11/01 summary regeneration for #7 ran twice: a container rebuild killed the worker mid-call, and the other worker took the job over when its lease expired (the takeover shown in `notes/demo.sql`) | 1 + 1 | $0.121 + $0.110 |
+
+The other summary regenerations of 11/01 (after D-39): #4 $0.051, #5 $0.234, #6 $0.136. Rules were re-run on
+every submission for the new message wording (no model calls). Sample #5 still 87/87; 83 tests pass.

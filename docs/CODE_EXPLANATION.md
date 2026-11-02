@@ -45,9 +45,9 @@ the core logic with honest notes on what to refactor next. For the big picture a
 |---|---|---|
 | `app/pipeline.py` | Orchestrates one run: reset (nothing deleted, old values marked `REPLACED`), split, classify (parallel), inherit continuation pages, extract (model calls parallel, storage in page order), re-apply human decisions, cross-checks, IFTA reconciliation and re-read, conflicts, rules, analyst. Also the job claim, restart recovery and the analysis-only re-run. | `run`, `claim`, `reset_interrupted`, `run_analysis`, `_parallel`, `_page_facts`, `_extract`, `_llm_extract`, `_ifta_reconciliation`, `_escalate_ifta` |
 | `app/resolve.py` | Gives every fact a stable entity key so the same driver, vehicle or policy lines up across documents: drivers by license number (else name + DOB), vehicles by VIN, loss runs by line + policy number, IFTA by quarter. Child items (violations, claims, IFTA rows) take their parent's key. | `assign_keys` |
-| `app/conflicts.py` | Finds disagreements: same entity + field with different normalized values across documents; claims on vehicles or drivers that aren't scheduled; prior terms listed without a loss run; a stale duplicate MVR (superseded, with the reason). Each conflict lists every source value and suggests one by source authority. | `detect`, `active_fields`, `SOURCE_PRIORITY` |
+| `app/conflicts.py` | Finds disagreements: same entity + field with different normalized values across documents; claims on vehicles or drivers that aren't scheduled; prior terms listed without a loss run; a stale duplicate MVR (superseded, with the reason). Each conflict lists every source value and suggests one (`_suggest`): the value most independent documents agree on; on a tie, the more authoritative document (`SOURCE_PRIORITY`: MVR > application > license photo, loss run, IFTA > driver/vehicle lists > quote form); for a vehicle's make, the VIN's manufacturer prefix. Claim and missing-loss-run conflicts carry a plain sentence and a next step. | `detect`, `active_fields`, `SOURCE_PRIORITY` |
 | `app/analyst.py` | The AI summary. Builds a compact context (values with ids, conflicts, rule results, IFTA aggregates computed in code, the agent's email as context) and asks Opus for a summary, concerns and next actions, each with cited ids and a confidence. Citations to ids that don't exist are removed in code. | `analyze`, `build_context`, `agent_email` |
-| `app/review.py` | Human actions: override a value or resolve a conflict (a reason is required). Each creates a `method="human"` field, marks the extracted value `SUPERSEDED`, writes an audit event and re-runs the rules. Refused while a job is running. | `override_field`, `resolve_conflict`, `rerun_rules`, `ReviewError` |
+| `app/review.py` | Human actions: override a value, resolve a conflict by choosing a value, or acknowledge one with nothing to choose (a reason or note is required). Each creates a `method="human"` field, marks the extracted value `SUPERSEDED`, writes an audit event and re-runs the rules. Refused while a job is running. | `override_field`, `resolve_conflict`, `rerun_rules`, `ReviewError` |
 
 ### Rules (`app/rules/`)
 
@@ -67,7 +67,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 | `labels.py` | Readable names for entity keys: a `driver:<license>` key → "Maria Lopez", `ifta:2026-03-31` → "Q1 2026", a vehicle → "2022 Volvo · VIN …302214". |
 | `templates/base.html` | Layout, header, design tokens and shared styles, the evidence drawer and toasts. |
 | `templates/index.html` | Upload panel and recent submissions. |
-| `templates/submission.html` | Status and decision, To review, AI summary, rule checks, conflicts, extracted values with evidence, documents, audit log; live progress while a job runs. |
+| `templates/submission.html` | Status and decision; To review grouped for an underwriter (reasons to refer, documents that disagree with each value's source, verify before quoting, couldn't be checked); AI summary with readable citation chips; rule checks with a legend for the codes; conflicts (choose a value, or acknowledge); extracted values with evidence; documents; audit log; live progress while a job runs. |
 | `templates/ops.html` | Needs attention, job queue, cost per run. |
 
 ### Jobs
@@ -89,7 +89,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 | `scripts/cost_report.py` | Cost per run (and per task for one run) from the ledger. |
 | `scripts/make_sample_eml.py`, `make_heldout*.py` | Build the sample email from the case-study files; generate the three held-out submissions. |
 | `scripts/pg_setup.ps1` | Creates the app's Postgres user and database from `DATABASE_URL` (Windows). |
-| `tests/` | 82 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
+| `tests/` | 83 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Image (Python 3.12, non-root, health check) and the stack: app, worker(s), Postgres 18. |
 | `PLAN.md`, `DECISIONS.md`, `RUN_LOG.md` | Requirements and the guideline as rules; every decision with options and reasons; every real model run with its cost and score. |
 
@@ -191,6 +191,7 @@ with its source.
 - Clicking a value opens the evidence drawer (`GET /fields/{id}`): the quoted line, checks, and the page image.
 - Correcting a value (`POST /fields/{id}/override`) or picking a conflict's value (`POST /conflicts/{id}/resolve`)
   goes through `review.py`: a human `Field`, the old value `SUPERSEDED`, an audit event, and the rules re-run at once.
+  A conflict with nothing to choose (a claim on an unscheduled driver) is acknowledged with a note instead.
   The decision may change; the AI summary is marked out of date until regenerated.
 
 ---

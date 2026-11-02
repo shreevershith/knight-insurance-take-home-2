@@ -12,6 +12,7 @@ describes code in this repository. Where something is *designed but not built*, 
 - [7. Models per task and cost control](#7-models-per-task-and-cost-control)
 - [8. Key design decisions and trade-offs](#8-key-design-decisions-and-trade-offs)
 - [9. Built vs designed](#9-built-vs-designed)
+- [10. What the underwriter sees first](#10-what-the-underwriter-sees-first)
 
 ---
 
@@ -158,14 +159,14 @@ sequenceDiagram
 
 | Stage | Where | What goes in | What comes out |
 |---|---|---|---|
-| Intake | `intake.ingest_eml`, `_add_file`, `_unpack_zip` | Raw email bytes | A `Submission`; one `Document` per attachment, zip member and the email body (`email-body.txt`); duplicates by SHA-256 marked `DUPLICATE` |
+| Intake | `intake.ingest_eml` / `ingest_files`, `_add_file`, `_unpack_zip`, `_unpack_email` | Raw email bytes, or uploaded files with an optional sender and note | A `Submission`; one `Document` per attachment, zip member, email found inside the submission (forwarded or zipped), and the email body or upload note (`email-body.txt`); duplicates by SHA-256 marked `DUPLICATE` |
 | Split | `intake.split_pages` | A stored file | `Page` rows: PDF pages (text layer + 150 dpi image), XLSX sheets (cell dump), Word body, text, or one image (phone photos turned upright and resized) |
 | Classify | `classify.classify_page` | Page text or image | `doc_type` (APPLICATION, MVR, LOSS_RUN, IFTA_RETURN, …), confidence, reason. Text: content signatures first, model if needed. Images: one vision call that classifies **and transcribes** |
 | Extract | `pipeline._page_facts`, `extract/` | A classified page | Facts `{entity, field, value, excerpt}`. Spreadsheets parsed in code; scanned IFTA tables parsed in code; everything else by a schema-driven model call |
 | Score | `extract/evidence.score` | Fact + page text | Confidence = method prior × excerpt-on-page × value-in-excerpt × validators |
 | Resolve | `resolve.assign_keys` | Facts | Stable entity keys: `driver:<license>`, `vehicle:<VIN>`, `loss_run:<line>:<policy>`, `ifta:<quarter>`, … |
 | Cross-check | `pipeline._cross_document_confirmation`, `_loss_runs_confirmed_by_listing`, `_ifta_reconciliation` | All values | Confidence raised where independent documents agree; IFTA returns confirmed only if rows add up to the printed total |
-| Conflicts | `conflicts.detect` | All active values | `Conflict` rows (OPEN), each with every source value and a suggested one |
+| Conflicts | `conflicts.detect` | All active values | `Conflict` rows (OPEN), each with every source value and a suggested one: the value most documents agree on; on a tie, the more authoritative document (MVR > application > license photo, loss run, IFTA > driver/vehicle lists > quote form); for a vehicle's make, the VIN |
 | Rules | `rules/engine.evaluate` | `SubmissionView` (one value per fact) | 42 `RuleResult` rows, decision, team |
 | Analyst | `analyst.analyze` | Values, conflicts, rule results, email body | Summary, concerns and next actions, each with cited ids (citations checked in code) |
 
@@ -293,7 +294,7 @@ stateDiagram-v2
 flowchart LR
     V[Underwriter sees a value,<br/>its source line and page] --> A{Action}
     A -->|Correct value + reason| O[review.override_field]
-    A -->|Pick a conflict's value + reason| R[review.resolve_conflict]
+    A -->|Pick a conflict's value + reason,<br/>or acknowledge with a note| R[review.resolve_conflict]
     O --> H[New human Field<br/>extracted one SUPERSEDED]
     R --> H
     H --> AU[Audit event<br/>before / after / why]
@@ -339,16 +340,28 @@ Each one is recorded in `DECISIONS.md` with the options and the reason.
 | Rules as config (D-12, PLAN §5b) | YAML (thresholds, keyword lists, outcomes) + one Python function per rule | Engineers still change logic; a rules UI is designed only |
 | Model per task (D-31) | Haiku / Sonnet / Opus by how checkable the task is, with escalation | More moving parts than one model |
 | Queue (D-04, D-25, D-36) | A job table on the same Postgres with SKIP LOCKED and leases | Not a managed queue; enough for this scale, SQS designed |
-| Formats (D-13, D-37, D-38) | PDF, XLSX, Word, text, images, zips, the email body; others flagged UNSUPPORTED with the reason | TIFF, HEIC, `.doc`, `.msg` not read |
+| Formats (D-13, D-37, D-38, D-40) | PDF, XLSX, Word, text, images, zips, the email body; others flagged UNSUPPORTED with the reason | TIFF, HEIC, `.doc`, `.msg` not read |
 
 ## 9. Built vs designed
 
 | Built and verified | Designed only (see PLAN.md §5a) |
 |---|---|
-| Email-file intake (upload of `.eml` or files) | A real mailbox (SES / Graph API) feeding the same intake |
+| Email-file intake (upload of `.eml`, or files with a sender and note; emails inside zips or forwarded are opened) | A real mailbox (SES / Graph API) feeding the same intake |
 | Postgres 18, Docker Compose (app, workers, database) | Managed database, object storage, secrets manager |
 | Job table with SKIP LOCKED, leases, retries, takeover | SQS or another managed queue, autoscaling on queue depth |
 | Per-task models, escalation, cache, cost ledger | Batch API, dashboards and alerts on the ledger |
 | 42 rules, guards, VERIFY, audit log, human overrides | A rules editor for underwriting operations |
 | Single reviewer identity, PII-masked logs | SSO, role-based access, encryption keys per tenant |
 | — | FMCSA SAFER lookup, route data for the border check |
+
+## 10. What the underwriter sees first
+
+The submission page is ordered for review (D-41 to D-43):
+
+- **Decision and team**, then **To review**: everything that needs a person, grouped as reasons to refer or decline,
+  documents that disagree (each value with the document it came from), verify before quoting, and couldn't be checked.
+  Messages are written for an underwriter; rule codes appear only in Rule checks and the audit log, with a legend
+  (*What the rule codes mean*).
+- **Conflicts** show every source value and a suggestion (and say how it was chosen). Where there's nothing to choose
+  (a claim on an unscheduled vehicle or driver, a listed term without a loss run), the page gives the next step and the
+  underwriter acknowledges it with a note.
