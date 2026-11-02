@@ -153,6 +153,36 @@ The case-study sample package is not in this repository. With its files in `cand
 `python scripts/make_sample_eml.py` builds `samples/cobalt_mesa_submission.eml`. The three held-out submissions are
 included under `eval/heldout/` (`scripts/make_heldout*.py` rebuilds them; needs `requirements-dev.txt`).
 
+## Reading the results page
+
+Each submission page answers, top to bottom: **what's the decision, what needs a person, and why.**
+
+- **Decision.** *Decline* · *Refer to underwriter* · *Ready to quote, after checks* (only outside-data checks left) ·
+  *Ready to quote*, with the team: Small Fleet (1–10 power units) or Fleet (11+).
+- **To review.** Everything that needs a person, grouped: reasons to refer or decline, documents that disagree (each
+  value with the document it came from), what to verify before quoting, and what couldn't be checked.
+- **Underwriter summary.** Written by the AI: concerns and next actions, each citing the values it relies on. Advisory
+  only; it never changes the decision.
+- **Rule checks.** All 42 rules with their outcome, the guideline sentence they implement and the values they used.
+  The codes are for reference; the prefix is the guideline section:
+
+  | Code | Guideline section |
+  |---|---|
+  | APP, COV | Program appetite and coverage |
+  | NV | New ventures |
+  | ST | Available states |
+  | SUB | Submission requirements |
+  | DRV | Drivers: license, CDL, experience, age, points, unacceptable history |
+  | PRO, SEL | Prohibited exposures (decline) and selective exposures (refer) |
+  | PRI | Prior insurance |
+  | RTE, CONFLICTS | Routing and conflicting information |
+
+  The rules are Knight's guideline split into single checks; the codes and the interpretations of ambiguous wording
+  are this project's (listed as questions for Knight in PLAN.md §2.9). The same legend is on the page under
+  *What the rule codes mean*.
+- **Conflicts, extracted data, documents, audit.** Resolve disagreements; see every value with the line and page it was
+  read from (click a value for the page image); every human change with its reason.
+
 ## Configuration
 
 All settings come from `.env` (see `.env.example`) or the environment. Defaults are in `app/config.py`.
