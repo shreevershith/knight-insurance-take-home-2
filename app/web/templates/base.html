@@ -321,7 +321,7 @@ q.snip, .snip { border-radius: 4px; }
       <span class="pill ${esc(d.status)}">${esc(d.status === "OK" ? "verified" : d.status.replaceAll("_", " ").toLowerCase())}</span>
       <dl class="kv"><dt>Confidence</dt><dd>${(+d.confidence).toFixed(2)}</dd><dt>How it was read</dt><dd>${esc(d.method_text || d.method)}</dd>
         <dt>Source</dt><dd>${esc(d.source || "your correction")}</dd></dl>
-      <div class="eyebrow" style="margin-bottom:6px">Evidence on the page</div>
+      <div class="eyebrow" style="margin-bottom:6px">${esc(d.excerpt_label || "Evidence on the page")}</div>
       <q class="snip">${d.excerpt ? highlight(d.excerpt, d.value) : "No excerpt"}</q>
       ${checks ? `<ul class="checks">${checks}</ul>` : ""}
       ${d.image ? `<div class="page-img"><img src="${esc(d.image)}" alt="Source page"></div>

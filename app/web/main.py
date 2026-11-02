@@ -322,6 +322,7 @@ def field_detail(field_id: int):
             "method": f.method, "method_text": method_label(f.method), "label": field_label(f.name),
             "confidence": f.confidence, "status": f.status, "checks": f.validation or {},
             "check_lines": check_lines(f.validation),
+            "excerpt_label": "Why it was put in this category" if f.method == "llm_category" else "Evidence on the page",
             "source": f"{p.document.filename} · page {p.page_no}" if p else "",
             "image": f"/pages/{p.id}/image" if p and p.image_path else ""})
 

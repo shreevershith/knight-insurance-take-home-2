@@ -369,7 +369,8 @@ def commodity_lists(v: SubmissionView) -> list[dict]:
         if not name.raw:
             continue
         doc = key.split(":")[1]
-        lst = lists.setdefault(doc, {"names": [], "shares": [], "ids": [], "name_ids": []})
+        lst = lists.setdefault(doc, {"names": [], "shares": [], "ids": [], "name_ids": [], "keys": []})
+        lst["keys"].append(key)
         lst["names"].append(name.raw)
         lst["name_ids"].append(name.field_ids)
         lst["shares"].append(parse_number(pct.raw))
@@ -384,16 +385,35 @@ def commodity_lists(v: SubmissionView) -> list[dict]:
     return list(lists.values())
 
 
-def _commodity_check(v, pattern, label) -> Result:
+def _commodity_check(v, pattern, label, category) -> Result:
     """D-29: 'not listed' is evidence only when the list is complete (shares total 100%), and the
-    PASS cites the names and percentages that show it. Otherwise the answer is not determinable."""
+    PASS cites the names and percentages that show it. Otherwise the answer is not determinable.
+
+    D-49: each commodity's prohibited_category (sorted by the model, or corrected by a person) is compared
+    with the keyword. Category says prohibited -> a hit (a low-confidence category can't decline: the central
+    guard makes it REFER). Keyword matches but the model's category says otherwise -> confirm, never a silent
+    pass; a person's category decides. No category (sorting failed) -> the keyword alone, as before."""
     lists = commodity_lists(v)
     if not lists:
         return missing(v, "Commodity list", APP_DOCS)
-    hits = [(n, ids) for lst in lists for n, ids in zip(lst["names"], lst["name_ids"]) if re.search(pattern, n, re.I)]
+    hits, unsure = [], []
+    for lst in lists:
+        for name, ids, key in zip(lst["names"], lst["name_ids"], lst["keys"]):
+            keyword = bool(re.search(pattern, name, re.I))
+            cat = v.value(key, "prohibited_category")
+            if not cat.raw:
+                if keyword:
+                    hits.append((name, ids))
+            elif cat.raw.strip().lower() == category:   # a person may type the category in any case
+                hits.append((name, ids + cat.field_ids))
+            elif keyword and v.field_by_id[cat.field_ids[0]].method != "human":
+                unsure.append((name, ids + cat.field_ids))
     if hits:
         # cite only the matching commodity names: the other entries don't bear on a hit (D-34)
         return Result(False, f"{label}: commodity {', '.join(n for n, _ in hits)}", [i for _, ids in hits for i in ids])
+    if unsure:
+        return Result(None, f"{', '.join(repr(n) for n, _ in unsure)}: the wording looks like {label.lower()}, but "
+                            "reading the commodity says it isn't; confirm what is hauled", [i for _, ids in unsure for i in ids])
     complete = [lst for lst in lists if lst["complete"]]
     if not complete:
         totals = ", ".join(f"{lst['total']}%" if lst["total"] is not None else "shares missing" for lst in lists)
@@ -411,7 +431,7 @@ def no_hazmat(v, cfg):
 
 @rule("PRO-02")
 def no_lithium(v, cfg):
-    return _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-02"], "Lithium battery cargo")
+    return _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-02"], "Lithium battery cargo", "lithium batteries")
 
 
 @rule("PRO-03")
@@ -442,7 +462,7 @@ def no_towing(v, cfg):
     towing = v.value("operations", "towing")
     if towing.norm is True:
         return Result(False, "Towing/recovery: answered Yes", towing.field_ids)
-    res = _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-06"], "Towing/recovery")
+    res = _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-06"], "Towing/recovery", "towing or recovery")
     if res.passed is False:   # a towing commodity outweighs a 'No' answer
         return res
     if towing.norm is False:  # an explicit No decides it, as for hazmat and intermodal (held-out #2, HO4)
@@ -457,7 +477,7 @@ def no_intermodal(v, cfg):
 
 @rule("PRO-08")
 def no_waste(v, cfg):
-    return _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-08"], "Waste disposal")
+    return _commodity_check(v, cfg["patterns"]["commodity_prohibited"]["PRO-08"], "Waste disposal", "waste")
 
 
 def _current_prior_policy_units(v: SubmissionView):

@@ -100,7 +100,7 @@ def label_for(key: str, names: dict[str, str]) -> str:
 FIELD_LABELS = {
     "dob": "date of birth", "driver_dob": "driver's date of birth", "um_limit": "UM limit", "uim_limit": "UIM limit",
     "al_limit": "AL limit", "al_deductible": "AL deductible", "apd_requested": "APD requested",
-    "reefer_breakdown": "reefer breakdown cover", "fein": "FEIN", "ssn": "SSN", "dot_number": "DOT number",
+    "reefer_breakdown": "reefer breakdown cover", "prohibited_category": "prohibited-cargo category", "fein": "FEIN", "ssn": "SSN", "dot_number": "DOT number",
     "mc_number": "MC number", "vin": "VIN", "cdl_issue_date": "CDL issue date", "mvr_order_date": "MVR order date",
     "ifta_account": "IFTA account", "scheduled": "not on the schedule", "loss_run": "missing loss run",
     "event": "MVR history event", "date": "event date", "radius_summary": "radius",
@@ -114,6 +114,7 @@ DOC_TYPE_LABELS = {
 METHOD_LABELS = {
     "llm_text": "read by AI from the document text", "llm_vision": "read by AI from a scan or photo",
     "xlsx": "read from the spreadsheet", "human": "your correction",
+    "llm_category": "sorted by AI from the commodity name (not read from the page)",
 }
 # check name -> (text when it passed, text when it failed)
 CHECK_TEXT = {

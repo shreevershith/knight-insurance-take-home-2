@@ -31,7 +31,7 @@ _client: anthropic.Anthropic | None = None
 run_id: contextvars.ContextVar[str] = contextvars.ContextVar("run_id", default="")
 
 TIER_OF = {"classify_text": "classify", "classify_vision": "transcribe", "analyst": "analyst",
-           "agent_reply": "draft"}
+           "agent_reply": "draft", "classify_commodities": "classify"}
 
 
 def tier_for(task: str) -> str:

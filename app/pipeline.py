@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from app import config, conflicts, llm
+from app import commodities, config, conflicts, llm
 from app.classify import classify_page
 from app.db import Conflict, Document, Field, Job, JobLog, Page, RuleResult, SessionLocal, Submission, audit
 from app.extract import evidence
@@ -104,6 +104,14 @@ def run(submission_id: int, claimed: bool = False) -> None:
             page_ctx = {"doc_id": d.id}
             for p in d.pages:
                 _extract(db, sub, d, p, page_ctx, known_drivers, prepared.get(p.id))
+        db.commit()
+
+        # before human decisions are re-applied, so a corrected category wins over the new one (D-49)
+        progress(db, sub, "Sorting commodities against the prohibited cargo list")
+        try:
+            commodities.classify(db, sub)
+        except llm.LLMError as exc:
+            progress(db, sub, f"Commodity sorting failed ({exc}); the rules use keywords only", "WARN")
         db.commit()
 
         reapplied = reapply_human_decisions(db, sub.id)
