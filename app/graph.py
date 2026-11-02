@@ -15,10 +15,11 @@ import threading
 from contextlib import contextmanager
 from typing import Any, TypedDict
 
+from langchain_core.runnables import RunnableLambda
 from langgraph.graph import START, StateGraph
 from langgraph.types import Command, interrupt
 
-from app import config, pipeline, review
+from app import config, llm, pipeline, review, tracing
 from app.db import SessionLocal, Submission
 from app.log import get_logger
 
@@ -40,8 +41,11 @@ def _node(stage):
             updates = stage(db, sub, state) or {}
             db.commit()
             return updates
-    node.__name__ = stage.__name__.removeprefix("stage_")
+    node.__name__ = pipeline.step_name(stage)
     return node
+
+
+REVIEW, REANALYZE = "await-review", "rewrite-analysis"
 
 
 def _human_review(state: RunState) -> dict:
@@ -89,22 +93,26 @@ def build(checkpointer=None):
         node = _node(stage)
         g.add_node(node.__name__, node)
         names.append(node.__name__)
-    g.add_node("human_review", _human_review)
-    g.add_node("reanalyze", _reanalyze)
+    g.add_node(REVIEW, _human_review)
+    g.add_node(REANALYZE, _reanalyze)
+    step = {short: pipeline.STEP_NAMES[short] for short in ("cross_check", "escalate_ifta", "confirm_ifta", "analyst")}
 
-    g.add_edge(START, "split")
+    g.add_edge(START, names[0])
     for a, b in zip(names, names[1:]):
-        if b == "escalate_ifta" or a == "escalate_ifta":
+        if step["escalate_ifta"] in (a, b):
             continue
         g.add_edge(a, b)
     # the one branch of the run: re-read IFTA scans whose rows don't add up, else go straight on
-    g.add_conditional_edges("cross_check", lambda s: "escalate_ifta" if pipeline.needs_ifta_escalation(s)
-                            else "confirm_ifta", ["escalate_ifta", "confirm_ifta"])
-    g.add_edge("escalate_ifta", "confirm_ifta")
-    g.add_edge("analyst", "human_review")
-    g.add_conditional_edges("human_review", lambda s: "reanalyze" if s["last_action"]["kind"] == "regenerate"
-                            else "human_review", ["reanalyze", "human_review"])
-    g.add_edge("reanalyze", "human_review")
+    # (named routers, so traces show what decided the path)
+    g.add_conditional_edges(step["cross_check"], RunnableLambda(
+        lambda s: step["escalate_ifta"] if pipeline.needs_ifta_escalation(s) else step["confirm_ifta"],
+        name="route-ifta-check"), [step["escalate_ifta"], step["confirm_ifta"]])
+    g.add_edge(step["escalate_ifta"], step["confirm_ifta"])
+    g.add_edge(step["analyst"], REVIEW)
+    g.add_conditional_edges(REVIEW, RunnableLambda(
+        lambda s: REANALYZE if s["last_action"]["kind"] == "regenerate" else REVIEW,
+        name="route-review-action"), [REANALYZE, REVIEW])
+    g.add_edge(REANALYZE, REVIEW)
     return g.compile(checkpointer=checkpointer)
 
 
@@ -139,12 +147,12 @@ def _config(submission_id: int) -> dict:
 
 
 def waiting_for_review(submission_id: int) -> bool:
-    """True when this submission's graph is paused at human_review."""
+    """True when this submission's graph is paused at await-review."""
     if config.PIPELINE_ENGINE != "graph":
         return False
     with _checkpointer() as saver:
         snapshot = build(saver).get_state(_config(submission_id))
-        return bool(snapshot.next) and snapshot.next[0] == "human_review" and bool(snapshot.interrupts)
+        return bool(snapshot.next) and snapshot.next[0] == REVIEW and bool(snapshot.interrupts)
 
 
 # ---------------------------------------------------------------- entry points
@@ -152,14 +160,23 @@ def waiting_for_review(submission_id: int) -> bool:
 def run(submission_id: int) -> None:
     """A full run (pipeline.run with PIPELINE_ENGINE=graph): a fresh thread, every stage, then the pause."""
     pipeline._start_run_id(submission_id)
-    with _checkpointer() as saver:
+    with SessionLocal() as db:
+        trace_input = tracing.safe_input(db.get(Submission, submission_id))
+    with tracing.trace("process-submission", submission_id, input=trace_input, tags=["pipeline", "engine:graph"]) as root, \
+            _checkpointer() as saver:
         saver.delete_thread(f"submission-{submission_id}")   # a reprocess starts over, like pipeline.run
         try:
-            build(saver).invoke({"submission_id": submission_id}, _config(submission_id))
+            # the Langfuse callback turns each node into a span and each ChatAnthropic call into a generation (D-52)
+            state = build(saver).invoke({"submission_id": submission_id},
+                                        {**_config(submission_id), "callbacks": tracing.callbacks(),
+                                         "run_name": "run-pipeline"})
+            with SessionLocal() as db:
+                tracing.finish_run(db, db.get(Submission, submission_id), state, llm.run_id.get(), root)
         except Exception as exc:
             with SessionLocal() as db:
                 pipeline.fail(db, submission_id, exc)
                 db.commit()
+            root.update(level="ERROR", status_message=f"{type(exc).__name__}: {exc}"[:500])
 
 
 def apply_review(submission_id: int, action: dict[str, Any]) -> None:
@@ -167,7 +184,9 @@ def apply_review(submission_id: int, action: dict[str, Any]) -> None:
     (processed by the code engine, or before D-51) gets the same review function directly. Raises ReviewError."""
     if waiting_for_review(submission_id):
         with _checkpointer() as saver:
-            state = build(saver).invoke(Command(resume=action), _config(submission_id))
+            state = build(saver).invoke(Command(resume=action),
+                                        {**_config(submission_id), "callbacks": tracing.callbacks(),
+                                         "run_name": "resume-with-review"})
         if error := state.get("last_action", {}).get("error"):
             raise review.ReviewError(error)
     else:
@@ -179,7 +198,9 @@ def regenerate(submission_id: int) -> bool:
     if not waiting_for_review(submission_id):
         return False
     with _checkpointer() as saver:
-        build(saver).invoke(Command(resume={"kind": "regenerate"}), _config(submission_id))
+        build(saver).invoke(Command(resume={"kind": "regenerate"}),
+                            {**_config(submission_id), "callbacks": tracing.callbacks(),
+                             "run_name": "resume-with-regenerate"})
     return True
 
 

@@ -302,7 +302,7 @@ stateDiagram-v2
 ## 6. Human review loop
 
 With `PIPELINE_ENGINE=graph` (Docker's default) the loop below runs **inside the LangGraph run**: the graph pauses at
-`human_review` after the analyst, and each action resumes it (section 11). Older submissions, or the `code` engine,
+`await-review` after the analysis, and each action resumes it (section 11). Older submissions, or the `code` engine,
 call the same review functions directly.
 
 ```mermaid
@@ -392,13 +392,14 @@ The stages in section 3 are plain functions (`pipeline.STAGES`). With `PIPELINE_
 
 ```mermaid
 flowchart TD
-    START([start]) --> split --> classify --> extract --> commodities --> cross_check
-    cross_check -. IFTA rows don't add up .-> escalate_ifta[escalate_ifta<br/>re-read on Opus]
-    cross_check -. otherwise .-> confirm_ifta
-    escalate_ifta --> confirm_ifta --> conflicts --> rules --> analyst
-    analyst --> human_review{{human_review<br/>interrupt: wait for the underwriter}}
-    human_review -. correction / conflict decision / re-run rules .-> human_review
-    human_review -. regenerate .-> reanalyze --> human_review
+    START([start]) --> split[split-pages] --> classify[classify-pages] --> extract[extract-values]
+    extract --> sort[sort-commodities] --> cross[cross-check-values]
+    cross -. "route-ifta-check: rows don't add up" .-> reread[reread-ifta-scans<br/>on Opus]
+    cross -. otherwise .-> confirm[confirm-ifta]
+    reread --> confirm --> conflicts[detect-conflicts] --> rules[apply-rules] --> analysis[write-analysis]
+    analysis --> review{{await-review<br/>interrupt: wait for the underwriter}}
+    review -. "route-review-action: correction / conflict decision / rules re-run" .-> review
+    review -. regenerate .-> rewrite[rewrite-analysis] --> review
 ```
 
 | LangGraph feature | Used for | Notes |
@@ -420,3 +421,42 @@ are shared and every ledger line records which client sent it.
 **Proof of equivalence** (RUN_LOG LG1): the five eval sets reprocessed through the graph hit the cache on every
 page-level call and kept every score; a fully live run of held-out #3 through LangGraph and LangChain scored 69/69.
 **Rollback:** `PIPELINE_ENGINE=code`, `LLM_CLIENT=sdk`.
+
+## 12. Observability with Langfuse (D-52)
+
+Tracing is on when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set (`LANGFUSE_BASE_URL` picks the region or
+a self-hosted server); `app/tracing.py` holds all of it. It follows Langfuse's "what does a good trace look like":
+one trace per unit of work, a session for work with human steps in between, verb-first stable names, safe and
+meaningful input/output, and model, tokens and cost on every generation.
+
+```mermaid
+flowchart LR
+    subgraph S["session submission-&lt;id&gt;"]
+        R["process-submission<br/>one pipeline run"] --> RP[run-pipeline<br/>LangGraph] --> N["split-pages … write-analysis<br/>one span per node"] --> G["generations<br/>extract-mvr, generate-analysis,<br/>draft-agent-reply … model, tokens, cost"]
+        A["apply-review<br/>user_id = reviewer"] --> RR[resume-with-review] --> AW[await-review]
+        RG[regenerate-analysis] --> RW[resume-with-regenerate] --> RA[rewrite-analysis] --> G2[generations]
+    end
+```
+
+| Trace | When | Input / output | Scores (from our own code checks) |
+|---|---|---|---|
+| `process-submission` | Every pipeline run | email subject and file count / decision, team, rule outcome counts | `evidence-verified-rate`, `low-confidence-values`, `ifta-unreconciled`, `escalations`, `commodity-disagreements`, `analyst-unsupported-items`, `open-conflicts`, `run-cost-usd`, `cache-hit-rate`, `decision`, `analyst-ok` |
+| `apply-review` | Each correction, conflict decision, rules re-run (a refusal is a WARNING) | kind, field, document type / new decision | `review-action`, `corrected-field`, `decision-changed` |
+| `regenerate-analysis` | Each regenerate | submission / written or failed | — |
+
+Nodes and model calls come from Langfuse's LangChain integration (`CallbackHandler`, bound to our client) on every
+graph invocation; with `PIPELINE_ENGINE=code` or `LLM_CLIENT=sdk` the same spans and generations are created by
+hand. Every trace carries `session_id = submission-<id>`, the environment (`docker` in Compose), tags
+(`pipeline`, `review`, `regenerate`, `engine:*`) and metadata (engine, client).
+
+**Privacy.** Prompts and outputs contain driver names, licence numbers and dates of birth. A `mask_otel_spans` hook
+rewrites every exported span: model inputs and outputs become "[not captured: N characters]"; graph node state keeps
+only the submission id, failed IFTA quarters and the review action's kind ("12 drivers (not captured)"); router
+choices (the next node's name) are kept; our own summaries are kept. `LANGFUSE_CAPTURE_CONTENT=true` sends content,
+PII-masked like the logs. Tests export to memory and never contact Langfuse.
+
+**Dashboard** (`scripts/langfuse_dashboard.py`, created through Langfuse's dashboards API): three rows, three
+questions. (1) What does a submission cost, and where does the money go: cost per run, cost by task, cost by model,
+p95 run time. (2) Can we trust what the AI read: share of quoted lines verified on the page, low-confidence values
+per run, check failures by kind, cache share. (3) Where do people step in: fields underwriters corrected, review
+actions, decisions, share of reviews that changed the decision.

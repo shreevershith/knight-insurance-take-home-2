@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import anthropic
 
-from app import config
+from app import config, tracing
 from app.log import get_logger
 
 log = get_logger(__name__)
@@ -43,10 +43,24 @@ def tier_for(task: str) -> str:
 _ledger_lock = threading.Lock()
 
 
+_totals: dict[str, dict] = {}
+
+
 def _ledger(**row) -> None:
     row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "run_id": run_id.get(), **row}
     with _ledger_lock, open(config.USAGE_LOG, "a", encoding="utf-8") as fh:  # page calls run in parallel
         fh.write(json.dumps(row) + "\n")
+        t = _totals.setdefault(row["run_id"], {"calls": 0, "cache_hits": 0, "escalations": 0, "cost_usd": 0.0})
+        t["calls"] += 1
+        t["cache_hits"] += bool(row.get("cache_hit"))
+        t["escalations"] += bool(row.get("escalated")) and not row.get("cache_hit")
+        t["cost_usd"] += row.get("cost_usd") or 0.0
+
+
+def run_totals(rid: str) -> dict:
+    """Calls, cache hits, escalations and cost of one run so far (for its trace's scores); then forgotten."""
+    with _ledger_lock:
+        return _totals.pop(rid, {"calls": 0, "cache_hits": 0, "escalations": 0, "cost_usd": 0.0})
 
 
 def client() -> anthropic.Anthropic:
@@ -69,9 +83,13 @@ class _Reply:
     request_id: str | None
 
 
-def _send_sdk(kwargs: dict) -> _Reply:
+def _send_sdk(kwargs: dict, name: str, metadata: dict) -> _Reply:
     api = client().beta.messages if "betas" in kwargs else client().messages
-    response = api.create(**kwargs)
+    with tracing.generation(name, model=kwargs["model"], metadata=metadata) as gen:   # D-52
+        response = api.create(**kwargs)
+        gen.update(usage_details={"input": response.usage.input_tokens, "output": response.usage.output_tokens},
+                   cost_details={"total": config.cost_usd(kwargs["model"], response.usage.input_tokens,
+                                                          response.usage.output_tokens)})
     return _Reply(response.model, response.stop_reason, response.usage.input_tokens, response.usage.output_tokens,
                   next((b.text for b in response.content if b.type == "text"), None),
                   getattr(response, "_request_id", None))
@@ -81,7 +99,7 @@ _chat_models: dict[tuple, object] = {}
 _chat_lock = threading.Lock()
 
 
-def _send_langchain(kwargs: dict) -> _Reply:
+def _send_langchain(kwargs: dict, name: str, metadata: dict) -> _Reply:
     """The same request through langchain-anthropic's ChatAnthropic (D-51). It builds the identical payload
     (system, content blocks, output_config, betas, extra_body; checked in tests) and raises the SDK's own
     exceptions, so the error handling below is shared. One model object per (model, max_tokens, betas, extras)."""
@@ -98,8 +116,9 @@ def _send_langchain(kwargs: dict) -> _Reply:
             chat = ChatAnthropic(model=kwargs["model"], max_tokens=kwargs["max_tokens"], betas=kwargs.get("betas"),
                                  timeout=config.LLM_TIMEOUT_SECONDS, max_retries=3, model_kwargs=extra)
             _chat_models[key] = chat
+    # run_name and metadata name the generation in Langfuse (D-52); callbacks come from the surrounding graph run
     message = chat.invoke([SystemMessage(kwargs["system"]), HumanMessage(content=kwargs["messages"][0]["content"])],
-                          output_config=kwargs["output_config"])
+                          config={"run_name": name, "metadata": metadata}, output_config=kwargs["output_config"])
     meta = message.response_metadata
     content = message.content
     text = content if isinstance(content, str) else next(
@@ -151,9 +170,11 @@ def structured_call(*, task: str, system: str, content: list[dict], schema: dict
         kwargs["extra_body"] = {"fallbacks": config.CLAUDE_FALLBACKS}
     send = _send_langchain if config.LLM_CLIENT == "langchain" else _send_sdk
 
+    trace_meta = {"task": task, "tier": tier, "effort": effort, "escalated": escalate,
+                  "escalation_reason": reason, **{k: v for k, v in ctx.items() if isinstance(v, (int, str))}}
     started = time.monotonic()
     try:
-        response = send(kwargs)
+        response = send(kwargs, tracing.generation_name(task), trace_meta)
     except anthropic.AuthenticationError as exc:
         raise LLMError(f"authentication failed: {exc.message}") from exc
     except anthropic.BadRequestError as exc:

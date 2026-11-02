@@ -29,6 +29,8 @@ services:
       # LangChain's ChatAnthropic sends model requests. Roll back with PIPELINE_ENGINE=code / LLM_CLIENT=sdk.
       PIPELINE_ENGINE: ${PIPELINE_ENGINE:-graph}
       LLM_CLIENT: ${LLM_CLIENT:-langchain}
+      # D-52: Langfuse keys and base URL come from .env; traces from this stack are labelled by environment
+      LANGFUSE_TRACING_ENVIRONMENT: ${LANGFUSE_TRACING_ENVIRONMENT:-docker}
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:

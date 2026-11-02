@@ -17,3 +17,4 @@ langgraph==1.2.16
 langgraph-checkpoint-postgres==3.2.0
 langchain-anthropic==1.5.1
 langchain-core==1.6.12
+langfuse==5.0.2

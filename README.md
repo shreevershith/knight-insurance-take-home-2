@@ -55,6 +55,10 @@ decision, the reasons, and an AI-written summary they can verify.
   re-read, checkpoints in Postgres, and human review as `interrupt()`/resume, so every correction resumes the paused
   run. Model requests go through LangChain's `ChatAnthropic`, with our own cache and cost ledger around it. Both are
   switchable back to plain code, and were shown to give identical results.
+- **Langfuse tracing.** Every run, review action and regenerate is a trace (one session per submission): graph
+  nodes as spans, every model call as a generation with model, tokens and cost, and scores from our own checks
+  (quoted lines verified, escalations, cost per run, corrections by field). Document text and personal data are
+  not sent by default. `scripts/langfuse_dashboard.py` builds a dashboard around three questions: cost, trust, review.
 - **Reliable processing.** A job queue on Postgres with workers (`SKIP LOCKED`, leases, retries, takeover when a
   worker dies); page calls run in parallel inside a job.
 - **Cost control.** A model per task (Haiku, Sonnet, Opus), escalation only when a code check fails, a response cache
@@ -217,6 +221,9 @@ All settings come from `.env` (see `.env.example`) or the environment. Defaults 
 | `JOB_MODE` | `thread` | `thread`: the web process runs jobs; `queue`: workers (`python -m app.worker`) run them |
 | `PIPELINE_ENGINE` | `code` (Docker: `graph`) | `graph`: LangGraph runs the stages, with checkpoints and review as interrupt/resume; `code`: `pipeline.run` calls the same stages in order |
 | `LLM_CLIENT` | `sdk` (Docker: `langchain`) | Who sends a request on a cache miss: the Anthropic SDK or LangChain's `ChatAnthropic` (identical request) |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | — / — / `https://cloud.langfuse.com` | Langfuse tracing; on when both keys are set |
+| `LANGFUSE_TRACING_ENVIRONMENT` | `default` (Docker: `docker`) | Environment label on every trace |
+| `LANGFUSE_CAPTURE_CONTENT` | `false` | `true` also sends document text and model outputs (PII-masked) |
 | `JOB_LEASE_SECONDS` / `JOB_MAX_ATTEMPTS` / `JOB_RETRY_BACKOFF_SECONDS` / `WORKER_POLL_SECONDS` | `120` / `3` / `30` / `2` | Queue behaviour: lease length, attempts before FAILED, delay × attempt, polling interval |
 | `POSTGRES_PASSWORD` | — | Docker only: password of the container's Postgres |
 | `APP_PORT` | `8000` | Docker only: host port for the web app |
@@ -240,7 +247,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 - **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
   current scores are regression results; held-out #3 has not been used for any fix; held-out #4's one miss was fixed after its first run.
 - On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
-- 107 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
+- 113 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
 ## Project structure
 
@@ -252,6 +259,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 | `app/rules/` | `knight_v1.yaml` (42 rules), the engine and guards, predicates, the resolved view |
 | `app/analyst.py`, `app/reply.py`, `app/commodities.py`, `app/review.py` | The AI summary; the draft reply to the agent; commodity sorting; human corrections |
 | `app/graph.py` | The LangGraph graph: stages as nodes, checkpointer, human review as interrupt/resume |
+| `app/tracing.py` | Langfuse traces, scores and masking |
 | `app/jobs.py`, `app/worker.py` | The job queue and workers |
 | `app/llm.py`, `app/db.py`, `app/config.py`, `app/log.py` | Model calls, data model, settings, logging |
 | `app/web/` | FastAPI routes and templates (review page, operations page) |

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from app import commodities, config, conflicts, llm
+from app import commodities, config, conflicts, llm, tracing
 from app.classify import classify_page
 from app.db import Conflict, Document, Field, Job, JobLog, Page, RuleResult, SessionLocal, Submission, audit
 from app.extract import evidence
@@ -73,16 +73,21 @@ def run(submission_id: int, claimed: bool = False) -> None:
     db = SessionLocal()
     sub = db.get(Submission, submission_id)
     _start_run_id(submission_id)
-    try:
-        state: dict = {}
-        for stage in STAGES:
-            if stage is stage_escalate_ifta and not needs_ifta_escalation(state):
-                continue
-            state.update(stage(db, sub, state) or {})
-    except Exception as exc:
-        fail(db, submission_id, exc)
-    finally:
-        db.close()
+    with tracing.trace("process-submission", submission_id, input=tracing.safe_input(sub),
+                       tags=["pipeline", "engine:code"]) as root:
+        try:
+            state: dict = {}
+            for stage in STAGES:
+                if stage is stage_escalate_ifta and not needs_ifta_escalation(state):
+                    continue
+                with tracing.step(step_name(stage)):
+                    state.update(stage(db, sub, state) or {})
+            tracing.finish_run(db, sub, state, llm.run_id.get(), root)
+        except Exception as exc:
+            fail(db, submission_id, exc)
+            root.update(level="ERROR", status_message=f"{type(exc).__name__}: {exc}"[:500])
+        finally:
+            db.close()
 
 
 def _start_run_id(submission_id: int) -> None:
@@ -212,6 +217,17 @@ def stage_analyst(db, sub, state) -> dict:
 STAGES = [stage_split, stage_classify, stage_extract, stage_commodities, stage_cross_check, stage_escalate_ifta,
           stage_confirm_ifta, stage_conflicts, stage_rules, stage_analyst]
 
+# What each stage is called as a graph node and in traces: verb first, stable (dashboards and filters use them).
+STEP_NAMES = {"split": "split-pages", "classify": "classify-pages", "extract": "extract-values",
+              "commodities": "sort-commodities", "cross_check": "cross-check-values",
+              "escalate_ifta": "reread-ifta-scans", "confirm_ifta": "confirm-ifta", "conflicts": "detect-conflicts",
+              "rules": "apply-rules", "analyst": "write-analysis"}
+
+
+def step_name(stage) -> str:
+    short = stage.__name__.removeprefix("stage_")
+    return STEP_NAMES.get(short, short)
+
 
 def _analyze_and_finish(db, sub: Submission) -> None:
     """The AI analysis (a model failure is recorded, not raised: the rules decision stands), then DONE."""
@@ -232,13 +248,20 @@ def run_analysis(submission_id: int, claimed: bool = False) -> None:
     db = SessionLocal()
     sub = db.get(Submission, submission_id)
     llm.run_id.set(f"sub{submission_id}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-analysis")
+    trace = tracing.trace("regenerate-analysis", submission_id, input={"submission_id": submission_id},
+                          tags=["regenerate", f"engine:{config.PIPELINE_ENGINE}"])
     try:
-        if config.PIPELINE_ENGINE == "graph":
-            from app import graph
-            if graph.regenerate(submission_id):   # resumes the paused graph through its analyst node (D-51)
-                return
-        progress(db, sub, "AI analyst: re-running on the reviewed values")
-        _analyze_and_finish(db, sub)
+        with trace as root:
+            if config.PIPELINE_ENGINE == "graph":
+                from app import graph
+                if graph.regenerate(submission_id):   # resumes the paused graph through its analyst node (D-51)
+                    db.expire_all()
+                    root.update(output={"analysis": "failed" if (db.get(Submission, submission_id).summary or {})
+                                        .get("error") else "written"})
+                    return
+            progress(db, sub, "AI analyst: re-running on the reviewed values")
+            _analyze_and_finish(db, sub)
+            root.update(output={"analysis": "failed" if (sub.summary or {}).get("error") else "written"})
     except Exception as exc:
         db.rollback()
         sub = db.get(Submission, submission_id)

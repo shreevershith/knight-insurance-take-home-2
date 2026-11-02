@@ -33,6 +33,12 @@ LLM_CLIENT = _env("LLM_CLIENT", "sdk")
 # D-51. Who runs the stages: "code" (pipeline.run calls them in order) or "graph" (a LangGraph StateGraph with
 # a checkpointer, and human review as interrupt/resume). Same stage functions either way.
 PIPELINE_ENGINE = _env("PIPELINE_ENGINE", "code")
+# D-52. Langfuse tracing: on when both keys are set (LANGFUSE_BASE_URL picks the region or self-hosted server) and
+# LANGFUSE_TRACING_ENABLED isn't "false". Document text and model outputs are sent only with
+# LANGFUSE_CAPTURE_CONTENT=true (and then PII-masked like the logs).
+LANGFUSE_ENABLED = (bool(_env("LANGFUSE_PUBLIC_KEY") and _env("LANGFUSE_SECRET_KEY"))
+                    and _env("LANGFUSE_TRACING_ENABLED", "true").lower() != "false")
+LANGFUSE_CAPTURE_CONTENT = _env("LANGFUSE_CAPTURE_CONTENT", "false").lower() == "true"
 
 # Jobs (D-36). "thread": the web process runs each job in a background thread (no worker needed).
 # "queue": the web app only enqueues; app/worker.py processes run them (docker-compose.yml).

@@ -523,3 +523,19 @@ Docker with `PIPELINE_ENGINE=graph`, `LLM_CLIENT=langchain` (D-51).
 
 Tests: 107 (graph order, branch, pause and resume, refused action, regenerate, reprocess, and the LangChain payload
 compared with the SDK's).
+
+### Langfuse tracing (LF1, 11/03)
+
+Docker with tracing on (environment `docker`, content capture off), Langfuse Cloud (US).
+
+| Check | Result |
+|---|---|
+| #8 reprocessed through the graph | trace `process-submission` → `run-pipeline` → 11 node spans → `generate-analysis` (Opus, 29.5k tokens) and `draft-agent-reply` (Sonnet); Langfuse's cost matched the ledger ($0.166 for the analyst); 11 scores on the trace (evidence verified 1.0, 2 low-confidence values, 0 escalations, $0.17, cache share 0.95, QUOTE_AFTER_CHECKS) |
+| Correction on #8 | `apply-review` with user `underwriter@knight`, scores `review-action=override`, `corrected-field=dot_number`, `decision-changed=false` |
+| Blank-reason correction | `apply-review` at WARNING, output `{"refused": "a reason is required"}`; the graph stays paused |
+| Regenerate on #8 | `regenerate-analysis` → `resume-with-regenerate` → `route-review-action` (output `rewrite-analysis`) → two generations → paused again |
+| Privacy | every generation's input/output "[not captured: N characters]"; node state shows `"12 drivers (not captured)"`; no names, dates of birth or licence numbers in any exported attribute |
+| Dashboard | created; its queries return data (cost per run $0.17, verified rate 1.0, `dot_number` corrected 2×, review actions) |
+
+Tests: 113 (masking, capture-on PII masking, node-state summary, router choices, and a graph run with a LangChain call
+exported to an in-memory span exporter).

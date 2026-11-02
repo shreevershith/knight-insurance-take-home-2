@@ -13,7 +13,7 @@ from urllib.parse import quote, urlparse
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app import config, graph, jobs, pipeline, review
+from app import config, graph, jobs, pipeline, review, tracing
 from app.config import data_path
 from app.web.labels import (action_label, capitalize_first, check_lines, doc_type_label, entity_labels, field_label,
                             label_for, problems_only,
@@ -340,26 +340,42 @@ def page_image(page_id: int):
         return FileResponse(data_path(page.image_path))
 
 
-def _review(sub_id: int | None, action: dict, missing: str) -> str:
+def _review(sub_id: int | None, action: dict, missing: str, field: str = "", doc_type: str = "") -> str:
     """Apply a review action (D-51: it resumes the submission's paused graph, or runs the review function
-    directly when there is none) and return the new decision. `missing`: the error when the target doesn't exist."""
-    try:
-        if sub_id is None:
-            raise review.ReviewError(missing)
-        graph.apply_review(sub_id, {**action, "actor": REVIEWER})
-    except review.ReviewError as exc:
-        raise _review_error(exc)
+    directly when there is none) and return the new decision. `missing`: the error when the target doesn't exist.
+    Traced as `apply-review` (D-52): which field, what kind of action, whether the decision moved."""
+    if sub_id is None:
+        raise _review_error(review.ReviewError(missing))
     with SessionLocal() as db:
-        return db.get(Submission, sub_id).decision
+        before = db.get(Submission, sub_id).decision
+    trace_input = {"kind": action["kind"], "field": field, "doc_type": doc_type}
+    if config.LANGFUSE_CAPTURE_CONTENT:
+        trace_input.update({k: action[k] for k in ("value", "reason") if k in action})
+    refused = None
+    with tracing.trace("apply-review", sub_id, input=trace_input, tags=["review"], user_id=REVIEWER) as root:
+        try:
+            graph.apply_review(sub_id, {**action, "actor": REVIEWER})
+        except review.ReviewError as exc:
+            refused = exc              # raised after the trace closes, so it's recorded as a warning, not an error
+            root.update(level="WARNING", status_message=f"refused: {exc}", output={"refused": str(exc)})
+        else:
+            with SessionLocal() as db:
+                after = db.get(Submission, sub_id).decision
+            tracing.score_review(action["kind"], field=field, doc_type=doc_type, decision_before=before,
+                                 decision_after=after)
+            root.update(output={"decision": after})
+    if refused:
+        raise _review_error(refused)
+    return after
 
 
 @app.post("/fields/{field_id}/override")
 def override_field(field_id: int, value: str = Form(...), reason: str = Form(...)):
     with SessionLocal() as db:
         f = db.get(Field, field_id)
-        sub_id = f.submission_id if f else None
+        sub_id, name, doc_type = (f.submission_id, f.name, f.doc_type) if f else (None, "", "")
     decision = _review(sub_id, {"kind": "override", "field_id": field_id, "value": value, "reason": reason},
-                       "field not found")
+                       "field not found", name, doc_type)
     return _back(f"/submissions/{sub_id}", f"Value updated. Rules re-run: {decision}", "#rules")
 
 
@@ -367,9 +383,9 @@ def override_field(field_id: int, value: str = Form(...), reason: str = Form(...
 def resolve_conflict(conflict_id: int, field_id: int = Form(...), reason: str = Form(...)):
     with SessionLocal() as db:
         c = db.get(Conflict, conflict_id)
-        sub_id = c.submission_id if c else None
+        sub_id, name = (c.submission_id, c.field_name) if c else (None, "")
     decision = _review(sub_id, {"kind": "resolve", "conflict_id": conflict_id, "field_id": field_id,
-                                "reason": reason}, "conflict not found or not open")
+                                "reason": reason}, "conflict not found or not open", name)
     return _back(f"/submissions/{sub_id}", f"Conflict resolved. Rules re-run: {decision}", "#conflicts")
 
 
