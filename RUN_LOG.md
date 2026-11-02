@@ -499,3 +499,11 @@ Baseline before the change, then all five eval submissions reprocessed on the ne
   the model got that last one right at 0.60, so the rule asks to confirm instead of passing.
 - Cost per submission: draft $0.008 (Sonnet, ~5 s), commodity sort $0.0003 (Haiku, ~4 s).
 - Decision: keep both (D-48, D-49). Nothing got worse, so no rollback.
+
+### Duplicate-code cleanup (CR4, 11/03)
+
+`/code-review` focused on repeated logic: 10 findings, 8 consolidated, 2 skipped (model-facing spec and schemas).
+Behaviour check: 97 tests pass; page HTML for #5, #8, #10, #47 and `/ops` captured before the rebuild and compared after
+(identical, whitespace aside); a regenerate on #8 hit the cache for both the analyst and the draft ($0), so the model
+inputs are unchanged. The first version sorted rule rows by id in the shared helper, which reordered the analyst's input
+and missed the cache on #5 ($0.25); the helper now returns rows exactly as the old query did (D-50).
