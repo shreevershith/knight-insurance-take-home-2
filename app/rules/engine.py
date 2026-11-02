@@ -142,7 +142,7 @@ def missing(v: SubmissionView, what: str, doc_types: set[str], required: bool = 
                             + ", ".join(unread[:4]) + ("..." if len(unread) > 4 else ""))
     if required:
         return Result(False, f"{what} not found")
-    return Result(None, f"{what} not found; not determinable")
+    return Result(None, f"{what} not found in the documents, so this can't be checked: ask the agent")
 
 
 APP_DOCS = {"APPLICATION", "QUOTE_FORM"}
@@ -193,9 +193,10 @@ def vehicle_schedule_complete(v: SubmissionView, cfg) -> Result:
 @rule("CONFLICTS")
 def no_open_conflicts(v: SubmissionView, cfg) -> Result:
     if v.open_conflicts:
-        names = sorted({f"{c.field_name} ({c.entity_key})" for c in v.open_conflicts})
-        return Result(False, f"{len(v.open_conflicts)} unresolved: " + ", ".join(names[:8]) +
-                      ("..." if len(names) > 8 else ""))
+        # the conflicts are listed one by one on the page; this message doesn't repeat them
+        n = len(v.open_conflicts)
+        return Result(False, f"{n} place{'s' if n != 1 else ''} where documents disagree, listed under "
+                             "'Documents that disagree'; resolving them re-runs the rules")
     return Result(True, "No open conflicts")
 
 
@@ -329,8 +330,9 @@ def texas_north_of_i10(v: SubmissionView, cfg) -> Result:
             return missing(v, "IFTA jurisdictions (operating states)", {"IFTA_RETURN"})
         return Result(True, f"no Texas miles in {len(states)} IFTA jurisdictions"
                             + (f"; farthest territory {farthest.raw}" if farthest.raw else ""), ids + farthest.field_ids)
-    return Result(None, "Texas operations (IFTA miles / farthest territory TX); whether they stay north of "
-                        "I-10 is not determinable from the submission (AMB-15)", ids + farthest.field_ids)
+    # AMB-15: the guideline doesn't say whether this applies to TX-domiciled accounts only
+    return Result(None, "The account operates in Texas (IFTA miles or farthest territory). Whether it stays north "
+                        "of I-10 can't be told from the documents: ask the agent", ids + farthest.field_ids)
 
 
 @rule("ST-04")
@@ -343,8 +345,8 @@ def operating_states_listed(v: SubmissionView, cfg) -> Result:
     if not outside:
         return Result(True, f"all {len(states)} operating states are available states", ids)
     outcome = "DECLINE" if mode == "decline" else "REFER"
-    return Result(False, f"{len(outside)} of {len(states)} IFTA states are not available states "
-                         f"({', '.join(outside)}); operating_states_mode={mode}", ids, outcome=outcome)
+    return Result(False, f"Miles in {len(outside)} of {len(states)} states that aren't on the available-states list: "
+                         f"{', '.join(outside)}", ids, outcome=outcome)  # outcome set by operating_states_mode
 
 
 # ---- prohibited exposures (D-29)
@@ -420,17 +422,18 @@ def border_proximity(v, cfg):
                       cross.field_ids)
     states, ids = derived.operating_states(v)
     border = sorted(states & set(cfg["patterns"]["border_states"]))
-    answer = f"cross-border answered {cross.raw}" if cross.raw else "cross-border not answered"
+    answer = f"cross-border answered '{cross.raw}'" if cross.raw else "cross-border not answered"
     # not in any submission: needs route or telematics data, so the config makes this VERIFY (D-39)
-    return Result(None, f"Within 50 miles of the US/Mexico border needs route data ({answer}, which only rules out "
-                        f"crossing; border-state miles: {', '.join(border) or 'none found'})",
+    return Result(None, f"Whether the account operates within 50 miles of the Mexican border can't be told from the "
+                        f"documents ({answer}, which only rules out crossing it). Miles in border states: "
+                        f"{', '.join(border) or 'none'}",
                   cross.field_ids + ids)
 
 
 @rule("PRO-05")
 def safer(v, cfg):
     dot = v.value("applicant", "dot_number")
-    return Result(None, f"SAFER violations need an FMCSA lookup for DOT {dot.raw or '?'} (designed, not built)",
+    return Result(None, f"Look up DOT {dot.raw or '(not found)'} in FMCSA SAFER for serious violations before quoting",
                   dot.field_ids)
 
 
@@ -473,14 +476,15 @@ def _apply_guards(outcome: str, res: Result, view: SubmissionView) -> tuple[str,
     """Central guards: DECLINE needs evidence; nothing PASSes or DECLINEs on a LOW_CONFIDENCE value."""
     message = res.message
     if outcome == "DECLINE" and not res.field_ids:
-        return "NOT_EVALUATED", message + " [guard: a decline needs positive evidence; none cited]"
+        return "NOT_EVALUATED", message + " (not declined: a decline needs a document value to point to)"
     low = [fid for fid in res.field_ids if (f := view.field_by_id.get(fid)) is not None
            and f.method != "human" and f.status == "LOW_CONFIDENCE"]
     if low and outcome in ("PASS", "DECLINE"):
-        refs = ", ".join(f"F{i}" for i in low[:6])
+        n = f"{len(low)} value{'s' if len(low) != 1 else ''}"  # which ones: the rule's cited values, on the page
+        it = "it" if len(low) == 1 else "them"
         if outcome == "PASS":
-            return "NOT_EVALUATED", message + f" [guard: relies on low-confidence value(s) {refs}; needs review]"
-        return "REFER", message + f" [guard: decline pending review of low-confidence value(s) {refs}]"
+            return "NOT_EVALUATED", message + f" (not passed yet: relies on {n} read with low confidence; confirm {it})"
+        return "REFER", message + f" (would decline, but relies on {n} read with low confidence; confirm {it} first)"
     return outcome, message
 
 

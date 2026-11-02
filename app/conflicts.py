@@ -1,10 +1,17 @@
 """Conflict and duplicate detection. Conflicts are surfaced with every source value and a
 suggested value, and stay OPEN until a human resolves them. Nothing is silently picked."""
+import re
 from collections import defaultdict
 
 from app.db import Conflict, Field
-from app.extract.normalize import names_compatible, norm_id, normalize, parse_date
+from app.extract.normalize import names_compatible, norm_id, normalize, parse_bool, parse_date
 from app.extract.spec import COMPARABLE
+
+
+def _plain(text: str) -> str:
+    """A loss-run cell as words for a sentence: '2021 - PETERBILT -' -> '2021 Peterbilt', 'KEVIN BRANDT' -> 'Kevin Brandt'."""
+    words = re.sub(r"\s*-\s*", " ", text or "").strip()
+    return " ".join(w.capitalize() if w.isalpha() else w for w in words.split())
 
 # Same real-world fact under a different name on another document type.
 ALIASES = {
@@ -123,9 +130,10 @@ def _claims_vs_schedules(submission_id, fields) -> list[Conflict]:
                 ids = [x for x in (vin_f, veh_f, c.get("unit_reported")) if x]
                 out.append(Conflict(
                     submission_id=submission_id, kind="CONFLICT", entity_key=f"vehicle:{vin}", field_name="scheduled",
-                    description=(f"Vehicle in claim {claim_key.split(':', 1)[1]} ({veh_f.value if veh_f else '?'} "
-                                 f"VIN {vin}) is not on the vehicle schedule"
-                                 + (f"; loss run 'unreported unit' = {c['unit_reported'].value}" if c.get("unit_reported") else "")),
+                    description=(f"Claim {claim_key.split(':', 1)[1]} involves a {_plain(veh_f.value) if veh_f else 'vehicle'} "
+                                 f"(VIN {vin}) that isn't on the vehicle list"
+                                 + ("; the loss run marks it as an unreported unit"
+                                    if c.get("unit_reported") and parse_bool(c["unit_reported"].value) else "")),
                     values=[{"value": x.value, "field_id": x.id, "source": _source(x), "doc_type": "LOSS_RUN"} for x in ids],
                     suggested_field_id=None, suggestion_reason="ask the agent whether this unit is still operated"))
         drv_f = c.get("driver_name")
@@ -135,8 +143,10 @@ def _claims_vs_schedules(submission_id, fields) -> list[Conflict]:
                 submission_id=submission_id, kind="CONFLICT",
                 entity_key=f"driver:{'-'.join(sorted(normalize('full_name', drv_f.value).split()))}",
                 field_name="scheduled",
-                description=(f"Driver in claim {claim_key.split(':', 1)[1]} ({drv_f.value}) is not on the driver schedule"
-                             + (f"; loss run driver status = {c['driver_reported'].value}" if c.get("driver_reported") else "")),
+                description=(f"Claim {claim_key.split(':', 1)[1]} names driver {_plain(drv_f.value)}, who isn't on the "
+                             "driver list"
+                             + (f"; the loss run lists the driver as {c['driver_reported'].value.lower()}"
+                                if c.get("driver_reported") else "")),
                 values=[{"value": x.value, "field_id": x.id, "source": _source(x), "doc_type": "LOSS_RUN"} for x in ids],
                 suggested_field_id=None, suggestion_reason="ask the agent for this driver's status and MVR"))
     return out

@@ -16,6 +16,29 @@
     {%- set f = field_by_id.get(e[1:]|int) -%}<a class="chip" href="#{{ e }}" title="{{ label_for(f.entity_key, names) }}">{{ f.name|replace('_', ' ') }}</a>
   {%- else -%}<a class="chip" href="#{{ e }}">{{ e }}</a>{%- endif -%}
 {%- endmacro %}
+{% set doc_names = {'APPLICATION': 'application', 'QUOTE_FORM': 'quote form', 'DRIVER_SCHEDULE': 'driver list',
+                     'VEHICLE_SCHEDULE': 'vehicle list', 'MVR': 'MVR', 'DRIVER_LICENSE': 'license photo',
+                     'LOSS_RUN': 'loss run', 'IFTA_RETURN': 'IFTA return'} %}
+{% set field_names = {'dob': 'date of birth', 'um_limit': 'UM limit', 'uim_limit': 'UIM limit', 'al_limit': 'AL limit',
+                       'reefer_breakdown': 'reefer breakdown cover', 'fein': 'FEIN', 'dot_number': 'DOT number',
+                       'mc_number': 'MC number', 'vin': 'VIN'} %}
+{% macro conflict_title(c) -%}
+  {%- set who = label_for(c.entity_key, names) -%}
+  {%- if c.field_name == 'scheduled' and c.entity_key.startswith('vehicle') -%}{{ who }}: in a claim, not on the vehicle list
+  {%- elif c.field_name == 'scheduled' -%}{{ who }}
+  {%- elif c.field_name == 'loss_run' -%}{{ who }}: no loss run in the package
+  {%- else -%}{{ who }}: {{ field_names.get(c.field_name, c.field_name|replace('_', ' ')) }} differs
+  {%- endif -%}
+{%- endmacro %}
+{% macro conflict_text(c) -%}
+  {#- claims and listed terms already carry a sentence; field disagreements show each value with where it came from -#}
+  {%- if c.field_name in ('scheduled', 'loss_run') -%}{{ c.description }}
+  {%- else -%}{%- for g in c['values']|groupby('value') -%}{%- if not loop.first %}  vs  {% endif -%}
+    {%- set kinds = [] -%}{%- for v in g.list -%}{%- set k = doc_names.get(v.doc_type, (v.doc_type or 'document')|replace('_', ' ')|lower) -%}
+      {%- if k not in kinds %}{% set _ = kinds.append(k) %}{% endif -%}{%- endfor -%}
+    <b>{{ g.grouper }}</b> ({{ kinds|join(', ') }})
+  {%- endfor -%}{%- endif -%}
+{%- endmacro %}
 {% macro src(f) -%}
   {%- set p = pages.get(f.page_id) if f.page_id else None -%}
   {%- if p %}<b>{{ p.document.filename }}</b> · page {{ p.page_no }}{% if p.label %} ({{ p.label }}){% endif %}{% else %}<b>Human decision</b>{% endif %}
@@ -177,6 +200,12 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 .cellbtn.lo { color: var(--unk); }
 
 .ai.e-ver { border-left-color: var(--ver); }
+.rv-h { display: flex; align-items: baseline; gap: 8px; margin: 26px 0 10px; font-size: 12px; font-weight: 600; letter-spacing: .08em;
+        text-transform: uppercase; color: var(--ink-2); }
+.rv-h:first-of-type { margin-top: 14px; }
+.rv-h span { font: 600 11px/1.6 var(--mono); color: var(--muted); background: var(--well); border-radius: 999px; padding: 0 7px; letter-spacing: 0; }
+.rv-h em { font-style: normal; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); font-size: 12.5px; }
+.ai .r b { color: var(--ink); font-weight: 600; }
 .ai { grid-template-columns: 124px minmax(0, 1fr) auto; }   /* room for the longest label ("Verify first") */
 @media (max-width: 640px) { .ai { grid-template-columns: 1fr; } }
 
@@ -338,25 +367,39 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 
 <section id="sec-review">
   <div class="sec-hd"><h2>To review</h2>{% if todo %}<span class="aside">{{ todo }} item(s) need a person</span>{% endif %}</div>
-  {% if todo %}<ul class="actions-list">
-    {% for r in failing %}<li class="ai {{ 'e-fail' if r.outcome in ('DECLINE', 'ERROR') else 'e-refer' }}">
-      <div><span class="pill {{ r.outcome }}">{{ 'Failed' if r.outcome != 'ERROR' else 'Error' }}</span></div>
+  {% if todo %}
+  {% if failing %}{% set declines = failing|selectattr('outcome', 'equalto', 'DECLINE')|list %}
+  <h3 class="rv-h">{{ 'Reasons to decline or refer' if declines else 'Reasons to refer' }} <span>{{ failing|length }}</span></h3>
+  <ul class="actions-list">
+    {% for r in failing|sort(attribute='outcome') %}<li class="ai {{ 'e-fail' if r.outcome in ('DECLINE', 'ERROR') else 'e-refer' }}">
+      <div><span class="pill {{ r.outcome }}">{{ {'DECLINE': 'Decline', 'ERROR': 'Rule error'}.get(r.outcome, 'Refer') }}</span></div>
       <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r">{{ r.rule_id }} · {{ r.message.split(' | OK: ')[0] }}</div></div>
       <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
+  </ul>{% endif %}
+  {% if open_conflicts %}
+  <h3 class="rv-h">Documents that disagree <span>{{ open_conflicts|length }}</span></h3>
+  <ul class="actions-list">
     {% for c in open_conflicts %}<li class="ai e-conflict">
-      <div><span class="pill CONFLICT">Conflicting</span></div>
-      <div><div class="t"><span class="f">{{ label_for(c.entity_key, names) }}</span>: {{ c.field_name|replace('_', ' ') }}</div>
-        <div class="r">{{ c['values']|map(attribute='value')|unique|join('  vs  ') }}</div></div>
+      <div><span class="pill CONFLICT">Conflict</span></div>
+      <div><div class="t"><span class="f">{{ conflict_title(c) }}</span></div><div class="r">{{ conflict_text(c) }}</div></div>
       <a class="btn sm" href="#C{{ c.id }}">Resolve</a></li>{% endfor %}
+  </ul>{% endif %}
+  {% if verify %}
+  <h3 class="rv-h">Verify before quoting <span>{{ verify|length }}</span><em>needs data no submission contains</em></h3>
+  <ul class="actions-list">
     {% for r in verify %}<li class="ai e-ver">
-      <div><span class="pill VERIFY" title="Check before quoting: needs data no submission contains">Verify first</span></div>
+      <div><span class="pill VERIFY">Verify first</span></div>
       <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r">{{ r.rule_id }} · {{ r.message }}</div></div>
       <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
+  </ul>{% endif %}
+  {% if not_eval %}
+  <h3 class="rv-h">Couldn't be checked <span>{{ not_eval|length }}</span><em>a person decides</em></h3>
+  <ul class="actions-list">
     {% for r in not_eval %}<li class="ai e-unk">
       <div><span class="pill NOT_EVALUATED">Unknown</span></div>
       <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r">{{ r.rule_id }} · {{ r.message.split(' | OK: ')[0] }}</div></div>
       <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
-  </ul>
+  </ul>{% endif %}
   {% else %}<div class="allclear"><span class="tick">✓</span>Nothing failed, nothing conflicting. Every rule passed.</div>{% endif %}
 </section>
 
@@ -411,7 +454,7 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   <div class="sec-hd"><h2>Conflicts &amp; duplicates</h2><span class="aside">{{ open_conflicts|length }} open of {{ conflicts|length }} · never picked automatically</span></div>
   {% for c in conflicts|sort(attribute='status') %}
   <div class="conflict" id="C{{ c.id }}">
-    <div class="h"><span class="pill {{ c.status }}">{{ c.status }}</span>{{ label_for(c.entity_key, names) }}: {{ c.field_name|replace('_', ' ') }}
+    <div class="h"><span class="pill {{ c.status }}">{{ c.status }}</span>{{ conflict_title(c) }}
       {% if c.kind != 'CONFLICT' %}<span class="pill neutral plain">{{ c.kind|replace('_', ' ')|lower }}</span>{% endif %}</div>
     {% if c.description %}<div class="small muted" style="margin-top:4px">{{ c.description }}</div>{% endif %}
     {% if c.status == 'OPEN' %}<form method="post" action="/conflicts/{{ c.id }}/resolve">{% endif %}

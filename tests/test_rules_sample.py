@@ -116,7 +116,7 @@ def test_states_dedupe_and_config_flip(sub, monkeypatch):
     engine.evaluate(db, s)
     r = _results(db, s)
     assert r["ST-01"].outcome == "PASS"
-    assert r["ST-04"].outcome == "REFER" and "2 of 5 IFTA states" in r["ST-04"].message   # KY counted once; NJ, KY outside
+    assert r["ST-04"].outcome == "REFER" and "2 of 5 states" in r["ST-04"].message   # KY counted once; NJ, KY outside
     assert r["ST-02"].outcome == "NOT_EVALUATED"                                              # TX miles: I-10 unknown
     cfg = engine.load_config()
     cfg["settings"]["operating_states_mode"] = "decline"

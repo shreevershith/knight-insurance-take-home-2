@@ -66,8 +66,8 @@ def test_low_confidence_never_passes_and_never_declines(db):
                       ("applicant", "fein", "12-3456789", "LOW_CONFIDENCE")])
     engine.evaluate(db, s)
     r = _results(db, s)
-    assert r["PRO-01"].outcome == "NOT_EVALUATED" and "low-confidence" in r["PRO-01"].message
-    assert r["PRO-07"].outcome == "REFER" and "pending review" in r["PRO-07"].message
+    assert r["PRO-01"].outcome == "NOT_EVALUATED" and "low confidence" in r["PRO-01"].message
+    assert r["PRO-07"].outcome == "REFER" and "would decline" in r["PRO-07"].message
     assert r["SUB-01"].outcome == "NOT_EVALUATED"
 
 
