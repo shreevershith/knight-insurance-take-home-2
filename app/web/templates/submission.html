@@ -560,7 +560,8 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
     <details class="entity" {% if label.startswith('Applicant') %}open{% endif %}>
       <summary><span class="chev">›</span><span class="nm">{{ label_for(key, names) }}</span>
         <span class="small muted">{{ items|length }} values{% if jrows %} · {{ jrows|length }} jurisdictions{% endif %}</span>
-        {% if lows %}<span class="pill LOW_CONFIDENCE">{{ lows }} to review</span>{% endif %}</summary>
+        {% if lows %}<span class="pill LOW_CONFIDENCE">{{ lows }} to review</span>{% endif %}
+        {% set dis = items|selectattr('id', 'in', disagree)|list|length %}{% if dis %}<span class="pill CONFLICT">{{ dis }} disagree</span>{% endif %}</summary>
       {% for f in items %}
       {% set failed = check_lines(f.validation)|rejectattr(0)|list %}
       <div class="field {{ 'ovr' if f.method == 'human' else ('miss' if failed else ('att' if f.status == 'LOW_CONFIDENCE' else '')) }} frow" id="F{{ f.id }}" data-low="{{ 1 if f.status == 'LOW_CONFIDENCE' else 0 }}">
@@ -568,7 +569,8 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
         <div style="min-width:0">
           <div class="vline"><span class="val">{{ f.value }}</span>
             {% if f.method == 'human' %}<span class="pill human">Human override</span>{% elif f.status != 'OK' %}<span class="pill {{ f.status }}">{{ f.status|replace('_', ' ') }}</span>{% endif %}
-            <span class="conf" title="Confidence computed from how it was read and what the checks found">confidence {{ '%.2f'|format(f.confidence) }}</span></div>
+            <span class="conf" title="Confidence computed from how it was read and what the checks found">confidence {{ '%.2f'|format(f.confidence) }}</span>
+            {% if disagree.get(f.id) %}<a class="pill CONFLICT disagree" href="#C{{ disagree[f.id] }}" title="Another document states a different value: see the conflict and choose">Sources disagree →</a>{% endif %}</div>
           {% if f.excerpt %}<div class="ev"><span class="loc">{{ src(f) }}</span><q class="snip">{{ f.excerpt }}</q></div>{% endif %}
           {% if failed %}<ul class="notes">{% for ok, text in failed %}<li>{{ text }}</li>{% endfor %}</ul>{% endif %}
           {% if f.status != 'SUPERSEDED' %}<details class="fix"><summary>Correct this value</summary>

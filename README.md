@@ -177,6 +177,8 @@ Each submission page answers, top to bottom: **what's the decision, what needs a
   *Ready to quote*, with the team: Small Fleet (1–10 power units) or Fleet (11+).
 - **To review.** Everything that needs a person, grouped: reasons to refer or decline, documents that disagree (each
   value with the document it came from), what to verify before quoting, and what couldn't be checked.
+- **Extracted data.** Every value with its source line; a value that another document contradicts shows
+  *Sources disagree →*, which jumps to the disagreement.
 - **Underwriter summary.** Written by the AI: concerns and next actions, each citing the values it relies on. Advisory
   only; it never changes the decision. Below it, **Draft reply to the agent**: edit, Copy, send it from your own email.
 - **Rule checks.** All 42 rules with their outcome, the guideline sentence they implement and the values they used.

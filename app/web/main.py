@@ -275,12 +275,17 @@ def show(request: Request, sub_id: int):
         for f in fields:
             entities[f.entity_key].append(f)
         field_by_id = {f.id: f for f in fields}
+        # values that are one side of an open disagreement -> that conflict, so Extracted data can mark them
+        # (claims and loss-run notes aren't a choice between values, so they aren't marked)
+        disagree = {v["field_id"]: c.id for c in conflicts if c.status == "OPEN" and c.kind == "CONFLICT"
+                    and c.field_name not in ("scheduled", "loss_run") for v in c.values}
         value_groups, ifta_rows = _group_values(dict(entities))
         names = entity_labels(fields)
         pages = {p.id: p for d in docs for p in d.pages}
         return templates.TemplateResponse(request, "submission.html", {
             "sub": sub, "docs": docs, "logs": logs, "entities": dict(entities), "conflicts": conflicts,
             "rules": rules, "audits": audits, "replaced": replaced, "field_by_id": field_by_id, "pages": pages,
+            "disagree": disagree,
             "running": sub.status in ("RECEIVED", "PROCESSING"), "stages": STAGES, "stage": _stage(logs),
             "run_started": next((_utc_iso(entry.at) for entry in reversed(logs)
                                  if entry.message.startswith("=== New run")), ""),
