@@ -138,9 +138,9 @@ def _review_error(exc: review.ReviewError) -> HTTPException:
     return HTTPException(409 if "being processed" in str(exc) else 400, str(exc))
 
 
-def _back(url: str, message: str, anchor: str = "") -> RedirectResponse:
-    """Redirect after an action, carrying a confirmation shown as a toast."""
-    return RedirectResponse(f"{url}?ok={quote(message)}{anchor}", status_code=303)
+def _back(url: str, message: str, anchor: str = "", error: bool = False) -> RedirectResponse:
+    """Redirect after an action, carrying a confirmation (or, with error, the reason it was refused) shown as a toast."""
+    return RedirectResponse(f"{url}?{'err' if error else 'ok'}={quote(message)}{anchor}", status_code=303)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -345,10 +345,12 @@ def page_image(page_id: int):
         return FileResponse(data_path(page.image_path))
 
 
-def _review(sub_id: int | None, action: dict, missing: str, field: str = "", doc_type: str = "") -> str:
+def _review(sub_id: int | None, action: dict, missing: str, done: str, anchor: str, back_to: str,
+            field: str = "", doc_type: str = "") -> RedirectResponse:
     """Apply a review action (D-51: it resumes the submission's paused graph, or runs the review function
-    directly when there is none) and return the new decision. `missing`: the error when the target doesn't exist.
-    Traced as `apply-review` (D-52): which field, what kind of action, whether the decision moved."""
+    directly when there is none) and go back to the page: `done` (with {decision}) at `anchor`, or, if refused,
+    the reason at `back_to` (the card or value being worked on). `missing`: the error when the target doesn't
+    exist (no page to go back to). Traced as `apply-review` (D-52)."""
     if sub_id is None:
         raise _review_error(review.ReviewError(missing))
     with SessionLocal() as db:
@@ -369,9 +371,10 @@ def _review(sub_id: int | None, action: dict, missing: str, field: str = "", doc
             tracing.score_review(action["kind"], field=field, doc_type=doc_type, decision_before=before,
                                  decision_after=after)
             root.update(output={"decision": after})
-    if refused:
-        raise _review_error(refused)
-    return after
+    url = f"/submissions/{sub_id}"
+    if refused:    # back to the page with the reason, not a bare error response (found clicking through, D-55)
+        return _back(url, f"Not saved: {refused}", back_to, error=True)
+    return _back(url, done.format(decision=after), anchor)
 
 
 @app.post("/fields/{field_id}/override")
@@ -379,9 +382,9 @@ def override_field(field_id: int, value: str = Form(...), reason: str = Form(...
     with SessionLocal() as db:
         f = db.get(Field, field_id)
         sub_id, name, doc_type = (f.submission_id, f.name, f.doc_type) if f else (None, "", "")
-    decision = _review(sub_id, {"kind": "override", "field_id": field_id, "value": value, "reason": reason},
-                       "field not found", name, doc_type)
-    return _back(f"/submissions/{sub_id}", f"Value updated. Rules re-run: {decision}", "#rules")
+    return _review(sub_id, {"kind": "override", "field_id": field_id, "value": value, "reason": reason},
+                   "field not found", "Value updated. Rules re-run: {decision}", "#rules", f"#F{field_id}",
+                   name, doc_type)
 
 
 @app.post("/conflicts/{conflict_id}/resolve")
@@ -389,12 +392,14 @@ def resolve_conflict(conflict_id: int, field_id: int = Form(...), reason: str = 
     with SessionLocal() as db:
         c = db.get(Conflict, conflict_id)
         sub_id, name = (c.submission_id, c.field_name) if c else (None, "")
-    decision = _review(sub_id, {"kind": "resolve", "conflict_id": conflict_id, "field_id": field_id,
-                                "reason": reason}, "conflict not found or not open", name)
-    return _back(f"/submissions/{sub_id}", f"Conflict resolved. Rules re-run: {decision}", "#conflicts")
+    return _review(sub_id, {"kind": "resolve", "conflict_id": conflict_id, "field_id": field_id, "reason": reason},
+                   "conflict not found or not open",
+                   ("Acknowledged" if name in ("scheduled", "loss_run") else "Conflict resolved") + ". Rules re-run: {decision}",
+                   "#conflicts",
+                   f"#C{conflict_id}", name)
 
 
 @app.post("/submissions/{sub_id}/rerun-rules")
 def rerun_rules(sub_id: int):
-    decision = _review(sub_id, {"kind": "rerun_rules"}, "submission not found")
-    return _back(f"/submissions/{sub_id}", f"Rules re-run: {decision}", "#rules")
+    return _review(sub_id, {"kind": "rerun_rules"}, "submission not found", "Rules re-run: {decision}", "#rules",
+                   "#rules")

@@ -152,6 +152,7 @@ mark { background: transparent; color: inherit; border-bottom: 2px solid var(--u
 .toast { position: fixed; left: 50%; bottom: 24px; z-index: 70; transform: translate(-50%, 14px); opacity: 0; background: var(--ink); color: #fff;
          padding: 10px 16px; border-radius: var(--r); font-size: 13.5px; transition: opacity .25s, transform .35s var(--ease); max-width: calc(100vw - 32px); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.err { background: #991b1b !important; }
 
 /* ================= polish layer =================
    Same parchment & ink identity, more depth: glass on the sticky bars, soft elevation on cards, a brass
@@ -288,10 +289,12 @@ q.snip, .snip { border-radius: 4px; }
   window.$esc = esc;
 
   // confirmation after an action (?ok=...)
-  window.toast = msg => { const t = $("#toast"); t.textContent = msg; t.classList.add("show");
-                          clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 4000); };
-  const ok = new URLSearchParams(location.search).get("ok");
-  if (ok) { setTimeout(() => toast(ok), 200); history.replaceState(null, "", location.pathname + location.hash); }
+  window.toast = (msg, error) => { const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+                          t.classList.toggle("err", !!error);
+                          clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), error ? 7000 : 4000); };
+  // ...or the reason an action was refused (?err=...), shown longer and in red
+  const qs = new URLSearchParams(location.search), ok = qs.get("ok"), err = qs.get("err");
+  if (ok || err) { setTimeout(() => toast(ok || err, !!err), 200); history.replaceState(null, "", location.pathname + location.hash); }
 
   // drawer: the scanned page behind a value
   const open = (kicker, title, html) => {

@@ -111,3 +111,18 @@ def test_rerun_marks_ai_findings_out_of_date_only_when_an_outcome_changes(sub_id
         review.rerun_rules(db, sub_id, "uw")
         db.commit()
         assert "outcome changed" in db.get(Submission, sub_id).summary.get("out_of_date", "")
+
+
+def test_a_refused_review_goes_back_to_the_page_with_the_reason(sub_id):
+    """Found clicking through the page (D-55): a reason of only spaces passes the browser's required check; the
+    server refuses it, and the reviewer lands back on the value with a red toast, not on a bare error response."""
+    from fastapi.testclient import TestClient
+    from app.web.main import app
+    with SessionLocal() as db:
+        fid = db.query(Field).filter_by(submission_id=sub_id).first().id
+    r = TestClient(app).post(f"/fields/{fid}/override", data={"value": "456", "reason": "   "}, follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/submissions/{sub_id}?err=Not%20saved%3A%20a%20reason%20is%20required#F{fid}"
+    r = TestClient(app).post(f"/fields/{fid}/override", data={"value": "456", "reason": "agent confirmed"},
+                             follow_redirects=False)
+    assert r.headers["location"].startswith(f"/submissions/{sub_id}?ok=Value%20updated") and r.headers["location"].endswith("#rules")

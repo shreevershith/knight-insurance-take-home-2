@@ -553,3 +553,10 @@ exported to an in-memory span exporter).
 | Stall | first seven-job run: worker-2 waited 19 min before #48's analyst call, heartbeat silent, lease expired, worker-1 took over and finished it; two repeats: no stall (7 jobs in 165 s). Heartbeat hardened, stack dump on SIGUSR1 added (D-53) |
 
 Model cost of this check: about $2.10 (analyst and draft calls; everything else cached). Tests: 114.
+
+### Conflict decisions clicked through in a browser (UI1, 11/03)
+
+Throw-away copy #50 of the sample (deleted afterwards, with its six Langfuse traces). Empty reason: blocked by the
+browser. Spaces-only reason: **was** a bare JSON error page, **now** back on the card with a red toast. Non-suggested
+value (LLC) with a reason: resolved with LLC, title and summary updated, open conflicts 12 → 11. Two acknowledgements
+with notes: resolved, 11 → 9, toast "Acknowledged. Rules re-run: REFER". Tests: 115.
