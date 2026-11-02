@@ -428,7 +428,8 @@ def no_recent_dui(v, cfg) -> Result:
             return False, "; ".join(f"{h[0]} on {h[1]:%m/%d/%Y}" for h in recent), [i for h in recent for i in h[3]]
         if any(not h[1] for h in hits):
             return None, "DUI/DWI entry without a date", [i for h in hits for i in h[3]]
-        return True, "no DUI/DWI in 5 years" + (f" ({len(hits)} older)" if hits else ""), []
+        span = f"{months // 12} years" if months % 12 == 0 else f"{months} months"
+        return True, f"no DUI/DWI in {span}" + (f" ({len(hits)} older)" if hits else ""), []
     return _per_driver(v, check)
 
 
@@ -534,18 +535,19 @@ def _coverage_terms(v):
 @rule("PRI-01")
 def continuous_coverage(v, cfg) -> Result:
     on, anchor_ids = _anchor(v, cfg)
+    p = cfg["params"]
+    years = p["prior_coverage_years"]
     if on is None:
-        return Result(None, "Application date not found; the 3-year window needs it", anchor_ids)
+        return Result(None, f"Application date not found; the {years}-year window needs it", anchor_ids)
     terms = _coverage_terms(v)
     if not terms:
         return missing(v, "Prior insurance terms", APP_DOCS | LOSS_DOCS)
-    p = cfg["params"]
     start = _months_back(on, 12 * p["prior_coverage_years"])
     gaps = _gaps(terms, start, on, p["max_lapse_days"])
     ids = anchor_ids + [i for t in terms for i in t[3]]
     if gaps:
         return Result(False, "; ".join(f"no coverage {a:%m/%d/%Y}–{b:%m/%d/%Y} ({n} days)" for a, b, n in gaps)
-                      + f" within the 3 years before {on:%m/%d/%Y}", ids)
+                      + f" within the {years} years before {on:%m/%d/%Y}", ids)
     return Result(True, f"covered from {start:%m/%d/%Y} to {on:%m/%d/%Y} with no lapse over {p['max_lapse_days']} days", ids)
 
 
