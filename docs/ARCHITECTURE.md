@@ -339,9 +339,11 @@ re-run on Opus when it fails a code check: a model error, no values, missing key
 found on the page, a page marked unreadable, or IFTA rows not adding up.
 
 **Cost controls**: content signatures before any model call; spreadsheets and scanned IFTA tables parsed in code;
-the analyst gets aggregates computed in code; every request is cached by its exact content (`data/llm_cache/`);
-every call is logged with its cost (`data/llm_usage.jsonl`, `scripts/cost_report.py`). Measured: about **$0.55–0.62
-per sample submission** versus $2.37 with Opus everywhere.
+the analyst gets aggregates computed in code; every request is cached by its exact content (`data/llm_cache/`), so
+re-runs and evals are repeatable and free, unless `LLM_CACHE=off`, which sends every request live and saves nothing
+(how the demo runs, D-56); every call is logged with its cost (`data/llm_usage.jsonl`, `scripts/cost_report.py`).
+Measured: about **$0.55–0.66 per sample submission** versus $2.37 with Opus everywhere; fully live, the sample takes
+136 s and $0.66 for 44 calls and still scores 87/87 (RUN_LOG LIVE1).
 
 ## 8. Key design decisions and trade-offs
 

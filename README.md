@@ -62,7 +62,8 @@ decision, the reasons, and an AI-written summary they can verify.
 - **Reliable processing.** A job queue on Postgres with workers (`SKIP LOCKED`, leases, retries, takeover when a
   worker dies); page calls run in parallel inside a job.
 - **Cost control.** A model per task (Haiku, Sonnet, Opus), escalation only when a code check fails, a response cache
-  and a cost ledger: about **$0.55–0.62 per submission** for the 33-page sample.
+  (switch it off with `LLM_CACHE=off` for live runs) and a cost ledger: about **$0.55–0.66 per submission** for the
+  33-page sample; fully live, 136 s.
 
 ## Prerequisites
 
