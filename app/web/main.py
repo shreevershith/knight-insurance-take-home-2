@@ -15,7 +15,8 @@ from fastapi.templating import Jinja2Templates
 
 from app import config, jobs, pipeline, review
 from app.config import data_path
-from app.web.labels import entity_labels, label_for
+from app.web.labels import (action_label, check_lines, doc_type_label, entity_labels, field_label, label_for,
+                            method_label, plain_error, status_label)
 from app.db import (AuditEvent, Conflict, Document, Field, Job, JobLog, Page, RuleResult, SessionLocal, Submission,
                     audit, init_db, utcnow)
 from app.analyst import agent_email
@@ -116,6 +117,10 @@ def _summary_blocks(text: str) -> list[tuple[str, object]]:
 
 templates.env.filters["summary_blocks"] = _summary_blocks
 templates.env.globals["label_for"] = label_for
+for _fn in (action_label, check_lines, doc_type_label, field_label, method_label, plain_error, status_label):
+    templates.env.globals[_fn.__name__] = _fn
+# "DOT number" stays "DOT number" (Jinja's capitalize would lowercase the rest)
+templates.env.filters["capitalize_first"] = lambda text: (text[:1].upper() + text[1:]) if text else text
 templates.env.globals["model_chip"] = lambda: " · ".join(
     f"{t} {config.route(t)[0].replace('claude-', '').split('-')[0].capitalize()}" for t in config.TIERS)
 
@@ -314,7 +319,9 @@ def field_detail(field_id: int):
         p = f.page
         return JSONResponse({
             "id": f.id, "entity": f.entity_key, "field": f.name, "value": f.value, "excerpt": f.excerpt or "",
-            "method": f.method, "confidence": f.confidence, "status": f.status, "checks": f.validation or {},
+            "method": f.method, "method_text": method_label(f.method), "label": field_label(f.name),
+            "confidence": f.confidence, "status": f.status, "checks": f.validation or {},
+            "check_lines": check_lines(f.validation),
             "source": f"{p.document.filename} · page {p.page_no}" if p else "",
             "image": f"/pages/{p.id}/image" if p and p.image_path else ""})
 

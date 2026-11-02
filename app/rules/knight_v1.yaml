@@ -113,7 +113,8 @@ rules:
     outcome: REFER
   - id: ST-04
     title: Operating states are available states
-    clause: "Prohibited exposures: ... non-listed states (see settings.operating_states_mode, D-05)"
+    # outcome follows settings.operating_states_mode (D-05): refer by default, decline if set
+    clause: "Prohibited exposures: ... non-listed states"
     outcome: REFER
   # ---- submission completeness
   - id: SUB-01

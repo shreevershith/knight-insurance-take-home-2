@@ -41,12 +41,12 @@ section + section { margin-top: 36px; }
   {% if attention %}<div class="tbl"><table>
     <tr><th>Submission</th><th>File / page</th><th>Status</th><th>Why</th></tr>
     {% for a in attention %}<tr><td><a href="/submissions/{{ a.sub }}">#{{ a.sub }}</a></td><td class="mono">{{ a.file }}</td>
-      <td><span class="pill {{ a.status }}">{{ a.status }}</span></td><td class="why">{{ a.why|truncate(140) }}</td></tr>{% endfor %}
+      <td><span class="pill {{ a.status }}">{{ a.status }}</span></td><td class="why" title="{{ a.why }}">{{ plain_error(a.why)|truncate(160) }}</td></tr>{% endfor %}
   </table></div>{% endif %}
 </section>
 
 <section>
-  <div class="sec-hd"><h2>Job queue</h2><span class="aside">latest 20; workers take jobs with SKIP LOCKED and hold a lease</span></div>
+  <div class="sec-hd"><h2>Job queue</h2><span class="aside" title="Workers claim jobs with SELECT ... FOR UPDATE SKIP LOCKED and hold a renewed lease">latest 20; each job is held by one worker at a time and retried if it fails</span></div>
   {% if jobs %}<div class="tbl"><table>
     <tr><th>Job</th><th>Submission</th><th>Kind</th><th>Status</th><th class="num">Attempt</th><th>Worker</th><th>Error</th></tr>
     {% for j in jobs %}<tr><td class="mono">{{ j.id }}</td>

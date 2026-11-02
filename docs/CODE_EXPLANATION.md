@@ -64,7 +64,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 | File | Responsibility |
 |---|---|
 | `main.py` | FastAPI routes. `GET /` (upload + list), `POST /submissions` (ingest + start), `GET /submissions/{id}` (the review page), `GET /submissions/{id}/status` (polled while running), `POST …/reprocess`, `POST …/rerun-analysis`, `POST …/rerun-rules`, `POST /fields/{id}/override`, `POST /conflicts/{id}/resolve`, `GET /fields/{id}` (evidence drawer data), `GET /pages/{id}/image`, `GET /ops` (operations). Starts jobs in a thread or enqueues them (`JOB_MODE`). |
-| `labels.py` | Readable names for entity keys: a `driver:<license>` key → "Maria Lopez", `ifta:2026-03-31` → "Q1 2026", a vehicle → "2022 Volvo · VIN …302214". |
+| `labels.py` | Plain-language labels used across the page: field names (`field_label`), document types, how a value was read (`method_label`), check results as sentences (`check_lines`), audit actions, statuses and file errors (`plain_error`). Also readable names for entity keys: a `driver:<license>` key → "Maria Lopez", `ifta:2026-03-31` → "Q1 2026", a vehicle → "2022 Volvo · VIN …302214". |
 | `templates/base.html` | Layout, header, design tokens and shared styles, the evidence drawer and toasts. |
 | `templates/index.html` | Upload panel and recent submissions. |
 | `templates/submission.html` | Status and decision; To review grouped for an underwriter (reasons to refer, documents that disagree with each value's source, verify before quoting, couldn't be checked); AI summary with readable citation chips; rule checks with a legend for the codes; conflicts (choose a value, or acknowledge); extracted values with evidence; documents; audit log; live progress while a job runs. |
@@ -89,7 +89,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 | `scripts/cost_report.py` | Cost per run (and per task for one run) from the ledger. |
 | `scripts/make_sample_eml.py`, `make_heldout*.py` | Build the sample email from the case-study files; generate the three held-out submissions. |
 | `scripts/pg_setup.ps1` | Creates the app's Postgres user and database from `DATABASE_URL` (Windows). |
-| `tests/` | 84 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
+| `tests/` | 85 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Image (Python 3.12, non-root, health check) and the stack: app, worker(s), Postgres 18. |
 | `PLAN.md`, `DECISIONS.md`, `RUN_LOG.md` | Requirements and the guideline as rules; every decision with options and reasons; every real model run with its cost and score. |
 

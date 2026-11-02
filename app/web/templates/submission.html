@@ -14,16 +14,13 @@
 {% set doc_names = {'APPLICATION': 'application', 'QUOTE_FORM': 'quote form', 'DRIVER_SCHEDULE': 'driver list',
                      'VEHICLE_SCHEDULE': 'vehicle list', 'MVR': 'MVR', 'DRIVER_LICENSE': 'license photo',
                      'LOSS_RUN': 'loss run', 'IFTA_RETURN': 'IFTA return'} %}
-{% set field_names = {'dob': 'date of birth', 'um_limit': 'UM limit', 'uim_limit': 'UIM limit', 'al_limit': 'AL limit',
-                       'reefer_breakdown': 'reefer breakdown cover', 'fein': 'FEIN', 'dot_number': 'DOT number',
-                       'mc_number': 'MC number', 'vin': 'VIN', 'scheduled': 'not on the schedule',
-                       'loss_run': 'missing loss run', 'event': 'MVR history event', 'date': 'event date'} %}
+{# field names a reader uses: app/web/labels.py FIELD_LABELS (field_label) #}
 {% macro conflict_title(c) -%}
   {%- set who = label_for(c.entity_key, names) -%}
   {%- if c.field_name == 'scheduled' and c.entity_key.startswith('vehicle') -%}{{ who }}: in a claim, not on the vehicle list
   {%- elif c.field_name == 'scheduled' -%}{{ who }}
   {%- elif c.field_name == 'loss_run' -%}{{ who }}: no loss run in the package
-  {%- else -%}{{ who }}: {{ field_names.get(c.field_name, c.field_name|replace('_', ' ')) }} differs
+  {%- else -%}{{ who }}: {{ field_label(c.field_name) }} differs
   {%- endif -%}
 {%- endmacro %}
 {% macro conflict_text(c) -%}
@@ -43,9 +40,9 @@
   {%- for e in evidence -%}
     {%- set kind, n = e[:1], (e[1:]|int if e[1:].isdigit() else 0) -%}
     {%- if kind == 'F' and field_by_id.get(n) -%}{%- set f = field_by_id.get(n) -%}
-      {%- set label = field_names.get(f.name, f.name|replace('_', ' ')) -%}{%- set tip = label_for(f.entity_key, names) ~ ': ' ~ (f.value or '') -%}
+      {%- set label = field_label(f.name) -%}{%- set tip = label_for(f.entity_key, names) ~ ': ' ~ (f.value or '') -%}
     {%- elif kind == 'C' and conflict_by_id.get(n) -%}{%- set c = conflict_by_id.get(n) -%}
-      {%- set label = 'conflict: ' ~ field_names.get(c.field_name, c.field_name|replace('_', ' ')) -%}{%- set tip = conflict_title(c) -%}
+      {%- set label = 'conflict: ' ~ field_label(c.field_name) -%}{%- set tip = conflict_title(c) -%}
     {%- elif kind == 'R' and rule_by_id.get(n) -%}{%- set r = rule_by_id.get(n) -%}
       {%- set label = 'rule ' ~ r.rule_id -%}{%- set tip = r.title -%}
     {%- else -%}
@@ -356,7 +353,7 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 {% if bad_pages or sub.status in ('FAILED', 'INTERRUPTED') %}<div style="display:grid; gap:10px">
   {% if sub.status in ('FAILED', 'INTERRUPTED') %}<div class="alert err" role="alert"><b>Processing {{ sub.status|lower }}</b>{{ sub.step }}. Choose Reprocess to run it again.</div>{% endif %}
   {% if bad_pages %}<div class="alert err" role="alert"><b>{{ bad_pages|length }} page(s) could not be read</b>
-    <ul>{% for d, p in bad_pages %}<li>{{ d.filename }} page {{ p.page_no }}: {{ p.status|replace('_', ' ')|lower }}{% if p.error %} ({{ p.error[:120] }}){% endif %}</li>{% endfor %}</ul>
+    <ul>{% for d, p in bad_pages %}<li>{{ d.filename }} page {{ p.page_no }}: {{ p.status|replace('_', ' ')|lower }}{% if p.error %} ({{ plain_error(p.error)[:160] }}){% endif %}</li>{% endfor %}</ul>
     <div style="margin-top:6px">Values on these pages are missing, never guessed; rules that need them show as couldn't be checked.</div></div>{% endif %}
 </div>{% endif %}
 
@@ -392,7 +389,7 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
     <a class="cell u {{ 'zero' if not open_conflicts }}" href="#sec-conflicts"><div class="lbl2">Open conflicts</div>
       <div class="num"><b>{{ open_conflicts|length }}</b><span>of {{ conflicts|length }}</span></div><div class="ex">Documents that disagree</div></a>
   </div>
-  <div class="disc">Decision from deterministic rules ({{ sub.rules_version or '—' }}). The AI summary is advisory and never changes the decision.</div>
+  <div class="disc" title="Rules version: {{ sub.rules_version or '—' }}">Decision from the guideline rules (version {{ (sub.rules_version or '').split('+')[0].rsplit('-v', 1)[-1] or '—' }}). The AI summary is advisory and never changes the decision.</div>
 </section>
 
 <section id="sec-review">
@@ -545,19 +542,19 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
     {% set jrows = ifta_rows.get(period, []) if period else [] %}
     {% set lows = (items|selectattr('status', 'equalto', 'LOW_CONFIDENCE')|list|length) + (jrows|selectattr('low')|list|length) %}
     <details class="entity" {% if label.startswith('Applicant') %}open{% endif %}>
-      <summary><span class="chev">›</span><span class="nm">{{ label_for(key, names) }}</span><span class="k">{{ key }}</span>
+      <summary><span class="chev">›</span><span class="nm">{{ label_for(key, names) }}</span>
         <span class="small muted">{{ items|length }} values{% if jrows %} · {{ jrows|length }} jurisdictions{% endif %}</span>
         {% if lows %}<span class="pill LOW_CONFIDENCE">{{ lows }} to review</span>{% endif %}</summary>
       {% for f in items %}
-      {% set failed = (f.validation or {}).items()|selectattr(1, 'sameas', false)|list %}
+      {% set failed = check_lines(f.validation)|rejectattr(0)|list %}
       <div class="field {{ 'ovr' if f.method == 'human' else ('miss' if failed else ('att' if f.status == 'LOW_CONFIDENCE' else '')) }} frow" id="F{{ f.id }}" data-low="{{ 1 if f.status == 'LOW_CONFIDENCE' else 0 }}">
-        <div><div class="lab">{{ f.name|replace('_', ' ')|capitalize }}</div><div class="key">F{{ f.id }} · {{ f.method }}</div></div>
+        <div><div class="lab">{{ field_label(f.name)|capitalize_first }}</div><div class="key">{{ method_label(f.method)|capitalize_first }}</div></div>
         <div style="min-width:0">
           <div class="vline"><span class="val">{{ f.value }}</span>
             {% if f.method == 'human' %}<span class="pill human">Human override</span>{% elif f.status != 'OK' %}<span class="pill {{ f.status }}">{{ f.status|replace('_', ' ') }}</span>{% endif %}
-            <span class="conf">conf {{ '%.2f'|format(f.confidence) }}</span></div>
+            <span class="conf" title="Confidence computed from how it was read and what the checks found">confidence {{ '%.2f'|format(f.confidence) }}</span></div>
           {% if f.excerpt %}<div class="ev"><span class="loc">{{ src(f) }}</span><q class="snip">{{ f.excerpt }}</q></div>{% endif %}
-          {% if failed %}<ul class="notes">{% for k, v in failed %}<li>Check failed: {{ k|replace('_', ' ') }}</li>{% endfor %}</ul>{% endif %}
+          {% if failed %}<ul class="notes">{% for ok, text in failed %}<li>{{ text }}</li>{% endfor %}</ul>{% endif %}
           {% if f.status != 'SUPERSEDED' %}<details class="fix"><summary>Correct this value</summary>
             <form class="edit" method="post" action="/fields/{{ f.id }}/override"><span class="elab">Reviewer correction</span>
               <input type="text" name="value" value="{{ f.value }}" aria-label="Corrected value">
@@ -590,15 +587,15 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
     <thead><tr><th>File</th><th>Page</th><th>Detected as</th><th>Status</th><th>How</th><th></th></tr></thead>
     <tbody>
     {% for d in docs %}
-      {% if not d.pages %}<tr><td><b>{{ d.filename }}</b></td><td></td><td></td><td><span class="pill {{ d.status }} plain">{{ d.status|lower }}</span></td>
-        <td class="muted small">{{ d.error }}{% if d.duplicate_of_id %}duplicate of document {{ d.duplicate_of_id }}{% endif %}{% if d.status == 'CONTAINER' %}unpacked; its files are listed below{% endif %}</td><td></td></tr>{% endif %}
+      {% if not d.pages %}<tr><td><b>{{ d.filename }}</b></td><td></td><td></td><td><span class="pill {{ d.status }} plain">{{ status_label(d.status) }}</span></td>
+        <td class="muted small" title="{{ d.error }}">{{ plain_error(d.error) }}{% if d.duplicate_of_id %}duplicate of document {{ d.duplicate_of_id }}{% endif %}{% if d.status == 'CONTAINER' %}unpacked; its files are listed below{% endif %}</td><td></td></tr>{% endif %}
       {% for p in d.pages %}<tr>
         <td>{% if loop.first %}<b>{{ d.filename }}</b>{% endif %}</td>
         <td class="mono">{{ p.page_no }}{% if p.label %} <span class="faint">{{ p.label }}</span>{% endif %}</td>
-        <td>{{ p.doc_type|replace('_', ' ')|capitalize }}</td>
-        <td>{% if p.status == 'OK' %}<span class="pill PASS plain">Read</span>{% else %}<span class="pill {{ p.status }} plain">{{ p.status|replace('_', ' ')|lower }}</span>{% endif %}</td>
+        <td>{{ doc_type_label(p.doc_type)|capitalize_first }}</td>
+        <td>{% if p.status == 'OK' %}<span class="pill PASS plain">Read</span>{% else %}<span class="pill {{ p.status }} plain" title="{{ p.error }}">{{ status_label(p.status) }}</span>{% endif %}</td>
         <td class="muted small">{{ 'by content rules' if p.classify_method == 'rules' else 'by the model' }}{% if p.text_source == 'vision_transcript' %} · scan, transcribed{% endif %}</td>
-        <td>{% if p.image_path %}<button class="btn sm" type="button" data-page data-image="/pages/{{ p.id }}/image" data-kicker="{{ p.doc_type|replace('_', ' ') }}"
+        <td>{% if p.image_path %}<button class="btn sm" type="button" data-page data-image="/pages/{{ p.id }}/image" data-kicker="{{ doc_type_label(p.doc_type) }}"
               data-title="{{ d.filename }} · page {{ p.page_no }}" data-note="{{ p.classify_reason }}">View</button>{% endif %}</td>
       </tr>{% endfor %}
     {% endfor %}
@@ -611,7 +608,7 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   {% if audits %}<div class="tbl"><table>
     <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Reason</th></tr></thead>
     <tbody>{% for a in audits %}<tr><td class="mono nowrap">{{ a.at.strftime('%b %d %H:%M') }}</td><td>{{ a.actor }}</td>
-      <td>{{ a.action }}<div class="small muted">{{ a.target }}</div></td><td>{{ a.reason or '' }}</td></tr>{% endfor %}</tbody>
+      <td title="{{ a.action }} · {{ a.target }}">{{ action_label(a.action) }}</td><td>{{ a.reason or '' }}</td></tr>{% endfor %}</tbody>
   </table></div>{% else %}<p class="muted">No events yet.</p>{% endif %}
 </section>
 {% endif %}

@@ -91,3 +91,100 @@ def label_for(key: str, names: dict[str, str]) -> str:
     if kind == "vehicle":
         return f"Vehicle · VIN …{rest[-6:]}"
     return key
+
+
+# ---------------------------------------------------------------- plain-language labels (D-45)
+# What the page shows instead of internal names: field names, document types, how a value was read, what a check
+# found, audit actions and file errors. One place, so every part of the page says the same thing.
+
+FIELD_LABELS = {
+    "dob": "date of birth", "driver_dob": "driver's date of birth", "um_limit": "UM limit", "uim_limit": "UIM limit",
+    "al_limit": "AL limit", "al_deductible": "AL deductible", "apd_requested": "APD requested",
+    "reefer_breakdown": "reefer breakdown cover", "fein": "FEIN", "ssn": "SSN", "dot_number": "DOT number",
+    "mc_number": "MC number", "vin": "VIN", "cdl_issue_date": "CDL issue date", "mvr_order_date": "MVR order date",
+    "ifta_account": "IFTA account", "scheduled": "not on the schedule", "loss_run": "missing loss run",
+    "event": "MVR history event", "date": "event date", "radius_summary": "radius",
+}
+DOC_TYPE_LABELS = {
+    "APPLICATION": "application", "QUOTE_FORM": "quote form", "DRIVER_SCHEDULE": "driver list",
+    "VEHICLE_SCHEDULE": "vehicle list", "MVR": "MVR", "DRIVER_LICENSE": "license photo", "LOSS_RUN": "loss run",
+    "IFTA_RETURN": "IFTA return", "REFERENCE": "reference sheet", "CONTINUATION": "continuation page",
+    "OTHER": "other (e.g. a cover note)",
+}
+METHOD_LABELS = {
+    "llm_text": "read by AI from the document text", "llm_vision": "read by AI from a scan or photo",
+    "xlsx": "read from the spreadsheet", "human": "your correction",
+}
+# check name -> (text when it passed, text when it failed)
+CHECK_TEXT = {
+    "excerpt_in_source": ("The quoted line is on the page", "The quoted line wasn't found on the page"),
+    "value_in_excerpt": ("The quoted line contains the value",
+                         "The quoted line doesn't show the whole value; it may be combined from several lines, "
+                         "so check it against the page"),
+    "length_17": ("VIN has 17 characters", "VIN doesn't have 17 characters"),
+    "no_IOQ": ("VIN has no I, O or Q", "VIN contains I, O or Q, which VINs never use"),
+    "check_digit": ("VIN check digit is right", "VIN check digit is wrong: likely a typo or misread"),
+    "date_parses": ("Reads as a date", "Doesn't read as a date"),
+    "dob_plausible": ("Date of birth is plausible", "Date of birth isn't plausible"),
+    "year_plausible": ("Model year is plausible", "Model year isn't plausible"),
+    "number_parses": ("Reads as an amount", "Doesn't read as an amount"),
+    "confirmed_by_other_document": ("Another document says the same", ""),
+    "confirmed_by_prior_insurance_listing": ("Matches the prior-insurance listing on the application", ""),
+    "superseded_by_human": ("Replaced by your correction", ""),
+    "superseded_by_newer_mvr": ("Replaced by a newer MVR for the same driver", ""),
+    "ifta_rows_sum_to_total": ("The IFTA rows add up to the printed total",
+                               "The IFTA rows don't add up to the printed total"),
+}
+ACTION_LABELS = {
+    "submission.received": "Submission received", "submission.reprocess": "Reprocessed",
+    "rules.evaluated": "Rules applied", "field.override": "Value corrected", "conflict.resolve": "Conflict resolved",
+    "analysis.rerun": "AI summary regenerated",
+}
+STATUS_LABELS = {
+    "OK": "read", "SKIPPED": "not needed", "CONTAINER": "unpacked", "DUPLICATE": "duplicate",
+    "UNREADABLE": "can't be read", "UNSUPPORTED": "file type not read", "MODEL_ERROR": "AI couldn't read it",
+    "UNCLASSIFIED": "type unclear", "PENDING": "waiting",
+}
+
+
+def field_label(name: str) -> str:
+    return FIELD_LABELS.get(name, (name or "").replace("_", " "))
+
+
+def doc_type_label(doc_type: str) -> str:
+    return DOC_TYPE_LABELS.get(doc_type, (doc_type or "").replace("_", " ").lower())
+
+
+def method_label(method: str) -> str:
+    return METHOD_LABELS.get(method, method or "")
+
+
+def status_label(status: str) -> str:
+    return STATUS_LABELS.get(status, (status or "").replace("_", " ").lower())
+
+
+def action_label(action: str) -> str:
+    return ACTION_LABELS.get(action, (action or "").replace(".", " ").replace("_", " "))
+
+
+def check_lines(validation: dict | None) -> list[tuple[bool, str]]:
+    """(passed, sentence) for each recorded check, failures first; internal bookkeeping keys are skipped."""
+    lines = []
+    for key, passed in (validation or {}).items():
+        if passed is True or passed is False:
+            text = CHECK_TEXT.get(key, (key.replace("_", " "), key.replace("_", " ")))[0 if passed else 1]
+            if text:
+                lines.append((passed, text))
+    return sorted(lines, key=lambda line: line[0])
+
+
+def plain_error(error: str) -> str:
+    """A file error a reviewer can act on; the technical text stays available as a tooltip."""
+    e = error or ""
+    if "Pdfium" in e or "PDFium" in e:
+        return "The PDF is damaged or isn't a real PDF, so it can't be opened: ask the agent to resend it"
+    if "BadZip" in e or "bad zip" in e:
+        return "The zip file is damaged and can't be opened: ask the agent to resend it"
+    if e.startswith("unsupported file type"):
+        return e.replace("unsupported file type", "This file type isn't read:") + " (ask for a PDF if it matters)"
+    return e

@@ -74,3 +74,24 @@ def test_review_change_marks_ai_findings_out_of_date(sub_id):
         db.commit()
         assert "applicant.dot_number" in sub.summary["out_of_date"]
         assert sub.summary["summary"] == "ok"        # findings kept, just labelled
+
+
+def test_rerun_marks_ai_findings_out_of_date_only_when_an_outcome_changes(sub_id):
+    with SessionLocal() as db:
+        sub = db.get(Submission, sub_id)
+        sub.summary = {"summary": "written earlier"}
+        db.commit()
+        review.rerun_rules(db, sub_id, "uw")        # first run: outcomes appear where there were none
+        sub.summary = {"summary": "written after that run"}
+        db.commit()
+        review.rerun_rules(db, sub_id, "uw")        # same values, same rules: nothing the summary used changed
+        db.commit()
+        assert "out_of_date" not in db.get(Submission, sub_id).summary
+        f = db.query(Field).filter_by(submission_id=sub_id, name="dot_number").first()
+        db.add(Field(submission_id=sub_id, page_id=f.page_id, doc_type="APPLICATION", entity_type="operations",
+                     entity_key="operations", name="hazmat", value="yes", method="llm_text", confidence=0.9,
+                     status="OK"))                    # hazmat answered Yes: PRO-01 now declines
+        db.commit()
+        review.rerun_rules(db, sub_id, "uw")
+        db.commit()
+        assert "outcome changed" in db.get(Submission, sub_id).summary.get("out_of_date", "")

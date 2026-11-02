@@ -314,14 +314,13 @@ q.snip, .snip { border-radius: 4px; }
     let d;
     try { d = await (await fetch(`/fields/${el.dataset.id}`)).json(); }
     catch (e) { $("#dr-body").innerHTML = "<p class='muted'>Could not load this value.</p>"; return; }
-    const checks = Object.entries(d.checks || {}).filter(([, v]) => v === true || v === false)
-      .map(([k, v]) => `<li class="${v ? "y" : "n"}">${v ? "✓" : "✗"} ${esc(k.replaceAll("_", " "))}</li>`).join("");
-    $("#dr-kicker").textContent = el.dataset.entity || d.entity; $("#dr-title").textContent = d.field.replaceAll("_", " ");
+    const checks = (d.check_lines || []).map(([ok, text]) => `<li class="${ok ? "y" : "n"}">${ok ? "✓" : "✗"} ${esc(text)}</li>`).join("");
+    $("#dr-kicker").textContent = el.dataset.entity || d.entity; const title = d.label || d.field.replaceAll("_", " "); $("#dr-title").textContent = title.charAt(0).toUpperCase() + title.slice(1);
     $("#dr-body").innerHTML = `
       <div class="value">${esc(d.value)}</div>
-      <span class="pill ${esc(d.status)}">${esc(d.status.replaceAll("_", " "))}</span>
-      <dl class="kv"><dt>Confidence</dt><dd>${(+d.confidence).toFixed(2)}</dd><dt>Method</dt><dd>${esc(d.method)}</dd>
-        <dt>Source</dt><dd>${esc(d.source || "human decision")}</dd><dt>Field id</dt><dd class="mono">F${esc(d.id)}</dd></dl>
+      <span class="pill ${esc(d.status)}">${esc(d.status === "OK" ? "verified" : d.status.replaceAll("_", " ").toLowerCase())}</span>
+      <dl class="kv"><dt>Confidence</dt><dd>${(+d.confidence).toFixed(2)}</dd><dt>How it was read</dt><dd>${esc(d.method_text || d.method)}</dd>
+        <dt>Source</dt><dd>${esc(d.source || "your correction")}</dd></dl>
       <div class="eyebrow" style="margin-bottom:6px">Evidence on the page</div>
       <q class="snip">${d.excerpt ? highlight(d.excerpt, d.value) : "No excerpt"}</q>
       ${checks ? `<ul class="checks">${checks}</ul>` : ""}

@@ -4,7 +4,7 @@ Kept out of the web routes so the worker and tests use the same code. Every huma
 stored as a `method="human"` Field keyed by (entity_key, field name), never by row id, so it
 survives re-extraction (pipeline.reapply_human_decisions). Originals are never overwritten.
 """
-from app.db import Conflict, Field, Submission, audit
+from app.db import Conflict, Field, RuleResult, Submission, audit
 from app.extract.spec import SPEC
 from app.rules.engine import evaluate
 
@@ -102,13 +102,29 @@ def resolve_conflict(db, conflict_id: int, field_id: int, reason: str, actor: st
 
 
 def rerun_rules(db, submission_id: int, actor: str) -> Submission:
+    """Apply the current rules file. The AI summary is marked out of date only if what it was written about
+    changed: the decision, the team, or any rule's outcome. A new rules version that only rewords a message
+    or a quoted clause doesn't make the findings stale."""
     sub = _not_processing(db, submission_id)
-    before = (sub.decision, sub.team, sub.rules_version)
+    before = (sub.decision, sub.team, _outcomes(db, submission_id))
     evaluate(db, sub, actor=actor)
-    if (sub.decision, sub.team, sub.rules_version) != before:
-        _analysis_out_of_date(sub, f"rules re-run ({before[2]} -> {sub.rules_version}): "
-                                   f"decision {before[0]} -> {sub.decision}")
+    db.flush()
+    after = (sub.decision, sub.team, _outcomes(db, submission_id))
+    if after != before:
+        changed = sorted(r for r in set(before[2]) | set(after[2]) if before[2].get(r) != after[2].get(r))
+        _analysis_out_of_date(sub, f"rules re-run: decision {before[0]} -> {after[0]}"
+                                   + (f"; outcome changed for {', '.join(changed)}" if changed else ""))
     return sub
+
+
+def _outcomes(db, submission_id: int) -> dict[str, str]:
+    """rule_id -> outcome of the latest rules run."""
+    last = (db.query(RuleResult).filter(RuleResult.submission_id == submission_id)
+            .order_by(RuleResult.id.desc()).first())
+    if last is None:
+        return {}
+    return {r.rule_id: r.outcome for r in db.query(RuleResult).filter(RuleResult.submission_id == submission_id,
+                                                                      RuleResult.run_id == last.run_id)}
 
 
 def _supersede_extracted(db, submission_id, entity_key, name, extra_ids=()) -> list[int]:

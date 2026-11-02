@@ -9,6 +9,8 @@ from app.extract.normalize import parse_bool, parse_date, parse_number, state_co
 from app.rules.view import SubmissionView
 
 ROSTER_TYPES = {"DRIVER_SCHEDULE", "VEHICLE_SCHEDULE", "QUOTE_FORM", "APPLICATION"}
+_DOC_NAMES = {"MVR": "MVR", "DRIVER_LICENSE": "license photo", "APPLICATION": "application",
+              "QUOTE_FORM": "quote form", "DRIVER_SCHEDULE": "driver list"}  # how rule messages name documents
 
 
 @dataclass
@@ -70,10 +72,10 @@ def cdl_evidence(v: SubmissionView, key: str, cdl_event: str | None = None) -> l
             d = parse_date(issued.value)
             if d:
                 ids = [issued.id] + [x.id for x in (cls, flag) if x]
-                out.append(Evidence(d, f"commercial license issued {issued.value} ({issued.doc_type})", ids))
+                out.append(Evidence(d, f"commercial license issued {issued.value} ({_DOC_NAMES.get(issued.doc_type, issued.doc_type)})", ids))
         cdl_date = page_fields.get("cdl_issue_date")
         if cdl_date and (d := parse_date(cdl_date.value)):
-            out.append(Evidence(d, f"CDL issue date {cdl_date.value} ({cdl_date.doc_type})", [cdl_date.id]))
+            out.append(Evidence(d, f"CDL issue date {cdl_date.value} ({_DOC_NAMES.get(cdl_date.doc_type, cdl_date.doc_type)})", [cdl_date.id]))
     for ev_key in v.entities(f"license_event:{key}:"):
         when, what = v.value(ev_key, "date"), v.value(ev_key, "event")
         if what.raw and event_re.search(what.raw) and (d := parse_date(when.raw)):
