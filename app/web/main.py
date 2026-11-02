@@ -195,7 +195,9 @@ def ops(request: Request):
 
 
 @app.post("/submissions")
-async def create_submission(files: list[UploadFile]):
+async def create_submission(files: list[UploadFile], sender: str = Form(""), note: str = Form("")):
+    """An agent's email, or files uploaded directly (simulated email intake). For files, the optional sender
+    and note stand in for the email's From and body; a single .eml carries its own."""
     payload = [(f.filename or "file", await f.read()) for f in files if f.filename]
     if not payload:
         raise HTTPException(400, "no files")
@@ -203,7 +205,7 @@ async def create_submission(files: list[UploadFile]):
         if len(payload) == 1 and payload[0][0].lower().endswith(".eml"):
             sub = ingest_eml(db, payload[0][1])
         else:
-            sub = ingest_files(db, payload, sender="upload", subject="Uploaded files")
+            sub = ingest_files(db, payload, sender=sender.strip()[:255], note=note)
         db.commit()
         sub_id = sub.id
     _start(sub_id)

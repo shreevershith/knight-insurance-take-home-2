@@ -60,3 +60,54 @@ def test_sideways_phone_photo_is_turned_upright_and_large_one_is_scaled(tmp_path
         assert max(im.size) == MAX_IMAGE_EDGE
     small = _photo(tmp_path / "small.jpg", (1600, 1204))
     assert _page_image(NS(sha256="small"), small) == small  # already fine: same bytes, cached reads still apply
+
+
+def _inner_email() -> EmailMessage:
+    m = EmailMessage()
+    m["From"], m["Subject"] = "Dana Pruitt <dana@agency.example>", "Bluestem Haulage - new business"
+    m.set_content("Eff 10/30/2026. Loss runs to follow.")
+    m.add_attachment(b"%PDF-1.4 not really", maintype="application", subtype="pdf", filename="app.pdf")
+    return m
+
+
+def _docs(db, sub):
+    db.commit()
+    return {d.filename: d for d in db.query(Document).filter_by(submission_id=sub.id)}
+
+
+def test_an_email_forwarded_as_an_attachment_is_opened():
+    from app.intake import ingest_eml
+    outer = EmailMessage()
+    outer["From"], outer["Subject"] = "csr@knight.example", "FW: Bluestem"
+    outer.set_content("Forwarding the agent's email below.")
+    outer.add_attachment(_inner_email())                       # message/rfc822, as mail clients forward
+    init_db()
+    with SessionLocal() as db:
+        sub = ingest_eml(db, outer.as_bytes())
+        docs = _docs(db, sub)
+        assert docs["forwarded-email.eml"].status == "CONTAINER"
+        assert "app.pdf" in docs and docs["app.pdf"].parent_id == docs["forwarded-email.eml"].id
+        assert "forwarded-email-body.txt" in docs                # the outer body keeps email-body.txt
+        assert sub.sender == "csr@knight.example"                # the submission's own email wins
+
+
+def test_an_email_inside_a_zip_or_among_uploads_supplies_the_sender():
+    import io
+    import zipfile
+    from app.intake import UPLOAD_SUBJECT, ingest_files
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("original email.eml", _inner_email().as_bytes())
+    init_db()
+    with SessionLocal() as db:
+        sub = ingest_files(db, [("package.zip", buf.getvalue())])
+        docs = _docs(db, sub)
+        assert sub.sender.startswith("Dana Pruitt") and sub.subject == "Bluestem Haulage - new business"
+        assert "app.pdf" in docs and EMAIL_BODY_NAME in docs     # its body is the submission's email text
+        own = ingest_files(db, [("x.eml", _inner_email().as_bytes())], sender="Rivergate CSR", note="Agent called: eff 10/30.")
+        docs = _docs(db, own)
+        assert own.sender == "Rivergate CSR" and own.subject == "Bluestem Haulage - new business"
+        from app.config import data_path
+        assert "Agent called" in data_path(docs[EMAIL_BODY_NAME].blob_path).read_text(encoding="utf-8")
+        assert "x-body.txt" in docs                              # the uploader's note keeps email-body.txt
+    assert UPLOAD_SUBJECT == "Uploaded files"

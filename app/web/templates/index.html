@@ -34,6 +34,13 @@
 .subs li:hover { background: var(--surface); box-shadow: var(--sh-2); border-bottom-color: transparent; }
 .subs .nm { font-size: 15px; text-decoration-color: var(--line-2); transition: text-decoration-color .2s; }
 .subs .nm:hover { text-decoration: underline; text-decoration-color: var(--ink); }
+/* optional sender and note for files uploaded without an email (simulated email intake) */
+.upmeta { margin-top: 12px; }
+.upmeta > summary { cursor: pointer; font-size: 12.5px; color: var(--ink-2); list-style: none; }
+.upmeta > summary::-webkit-details-marker { display: none; }
+.upmeta[open] > summary .chev { transform: rotate(90deg); }
+.upmeta label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 10px; }
+.upmeta input, .upmeta textarea { margin-top: 4px; font-size: 13px; resize: vertical; }
 </style>
 {% endblock %}
 
@@ -46,6 +53,13 @@
   <input type="file" id="fileInput" multiple class="hidden">
 </label>
 <ul class="files" id="fileList"></ul>
+<details class="upmeta">
+  <summary><span class="chev">›</span> Sender and note (when there's no email)</summary>
+  <label for="upFrom">From</label>
+  <input type="text" id="upFrom" maxlength="255" placeholder="Agent or broker, e.g. Dana Pruitt, Rivergate Insurance">
+  <label for="upNote">Note from the agent</label>
+  <textarea id="upNote" rows="3" placeholder="What came with the files: effective date, what's to follow…"></textarea>
+</details>
 <div class="actions">
   <button class="btn primary" id="processBtn" type="button" disabled>Process submission</button>
   <button class="btn" id="newBtn" type="button" title="Clear the packet">New</button>
@@ -73,7 +87,7 @@
   {% if subs %}<ul class="subs">
     {% for s in subs %}<li {% if s.status in ('RECEIVED', 'PROCESSING') %}data-live="{{ s.id }}"{% endif %}>
       <div style="min-width:0"><a class="nm" href="/submissions/{{ s.id }}">{{ companies.get(s.id) or s.subject }}</a>
-        <div class="sub">#{{ s.id }} · {{ s.subject if companies.get(s.id) else s.sender }}</div></div>
+        <div class="sub">#{{ s.id }} · {{ s.subject if companies.get(s.id) else (s.sender or 'direct upload') }}</div></div>
       <span class="when">{{ s.received_at.strftime('%b %d, %H:%M') }}</span>
       <div class="st">
         {% if s.status != 'DONE' %}<span class="pill {{ s.status }}" data-f="status">{{ s.status }}</span>{% endif %}
@@ -105,9 +119,11 @@
   ["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", e => add(e.dataTransfer.files));
   $("fileList").addEventListener("click", e => { const b = e.target.closest(".x"); if (b) { files.splice(+b.dataset.i, 1); render(); } });
-  $("newBtn").addEventListener("click", () => { files.length = 0; render(); $("err").textContent = ""; });
+  $("newBtn").addEventListener("click", () => { files.length = 0; render(); $("err").textContent = "";
+                                                $("upFrom").value = ""; $("upNote").value = ""; });
   $("processBtn").addEventListener("click", async () => {
     const fd = new FormData(); files.forEach(f => fd.append("files", f, f.name));
+    fd.append("sender", $("upFrom").value); fd.append("note", $("upNote").value);  // ignored for a single .eml
     $("processBtn").disabled = true; $("processBtn").textContent = "Uploading…";
     try {
       const res = await fetch("/submissions", { method: "POST", body: fd });

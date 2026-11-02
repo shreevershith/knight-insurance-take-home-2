@@ -53,19 +53,32 @@ def ingest_eml(db, raw: bytes) -> Submission:
     audit(db, sub.id, "system", "submission.received", f"submission:{sub.id}",
           after={"sender": sub.sender, "subject": sub.subject, "email_sha256": sub.email_sha256})
 
-    seen: dict[str, Document] = {}
-    count = 0
-    body = email_body(msg)
-    if body:
-        # what the agent typed is part of the submission: read and classified like any text page
-        _add_file(db, sub, EMAIL_BODY_NAME, body.encode("utf-8"), "text/plain", None, seen, depth=0)
-    for part in msg.iter_attachments():
-        filename = part.get_filename() or "attachment.bin"
-        data = part.get_payload(decode=True) or b""
-        _add_file(db, sub, filename, data, part.get_content_type(), None, seen, depth=0)
-        count += 1
+    count = _email_parts(db, sub, msg, None, {}, depth=0, body_name=EMAIL_BODY_NAME)
     log.info("email ingested", submission_id=sub.id, attachments=count)
     return sub
+
+
+def _email_parts(db, sub, msg, parent, seen, depth, body_name) -> int:
+    """An email's body (what the agent typed, read and classified like any text page) and its attachments.
+    Used for the submission's own email and for emails found inside it."""
+    body = email_body(msg)
+    if body:
+        _add_file(db, sub, body_name, body.encode("utf-8"), "text/plain", parent, seen, depth)
+    count = 0
+    for part in msg.iter_attachments():
+        is_email = part.get_content_type() == "message/rfc822"
+        filename = part.get_filename() or ("forwarded-email.eml" if is_email else "attachment.bin")
+        _add_file(db, sub, filename, _attachment_bytes(part), part.get_content_type(), parent, seen, depth)
+        count += 1
+    return count
+
+
+def _attachment_bytes(part) -> bytes:
+    """An attachment's bytes. An email attached to an email ("forward as attachment") is a message object."""
+    if part.get_content_type() == "message/rfc822":
+        inner = part.get_content()
+        return inner.as_bytes() if hasattr(inner, "as_bytes") else bytes(inner)
+    return part.get_payload(decode=True) or b""
 
 
 EMAIL_BODY_NAME = "email-body.txt"
@@ -98,14 +111,22 @@ def email_body(msg) -> str:
     return "\n".join(lines).strip()
 
 
-def ingest_files(db, files: list[tuple[str, bytes]], sender: str = "", subject: str = "") -> Submission:
-    """Same path as email intake, for direct uploads."""
+UPLOAD_SUBJECT = "Uploaded files"
+
+
+def ingest_files(db, files: list[tuple[str, bytes]], sender: str = "", subject: str = UPLOAD_SUBJECT,
+                 note: str = "") -> Submission:
+    """Same path as email intake, for files uploaded directly (simulated email intake). sender and note are
+    what the person uploading says came with the files; the note is read like an email body. An email found
+    among the files supplies the sender and subject the upload doesn't have."""
     sub = Submission(sender=sender, subject=subject, status="RECEIVED")
     db.add(sub)
     db.flush()
     audit(db, sub.id, "system", "submission.received", f"submission:{sub.id}",
-          after={"sender": sender, "subject": subject, "files": [f for f, _ in files]})
+          after={"sender": sender, "subject": subject, "note": bool(note.strip()), "files": [f for f, _ in files]})
     seen: dict[str, Document] = {}
+    if note.strip():
+        _add_file(db, sub, EMAIL_BODY_NAME, note.strip().encode("utf-8"), "text/plain", None, seen, depth=0)
     for filename, data in files:
         _add_file(db, sub, filename, data, mimetypes.guess_type(filename)[0] or "", None, seen, depth=0)
     return sub
@@ -131,7 +152,28 @@ def _add_file(db, sub, filename, data, media_type, parent, seen, depth) -> Docum
     suffix = Path(filename).suffix.lower()
     if suffix == ".zip" or media_type in ("application/zip", "application/x-zip-compressed"):
         _unpack_zip(db, sub, doc, data, seen, depth)
+    elif suffix == ".eml" or media_type == "message/rfc822":
+        _unpack_email(db, sub, doc, data, seen, depth)
     return doc
+
+
+def _unpack_email(db, sub, doc, data, seen, depth):
+    """An email inside the submission (forwarded as an attachment, zipped, or uploaded with other files): its
+    body and attachments are read like the outer email's. If the submission has no email of its own (a
+    direct upload), this one supplies the sender and subject; the uploader's own entries are kept."""
+    doc.status = "CONTAINER"
+    if depth >= MAX_ZIP_DEPTH:
+        doc.status, doc.error = "UNSUPPORTED", "nested email or archive depth limit reached"
+        return
+    msg = email.message_from_bytes(data, policy=policy.default)
+    if not sub.email_sha256:
+        sub.sender = sub.sender or str(msg.get("From", ""))
+        if not sub.subject or sub.subject == UPLOAD_SUBJECT:
+            sub.subject = str(msg.get("Subject", "")) or sub.subject
+        sub.email_sha256 = doc.sha256
+    has_body = db.query(Document.id).filter_by(submission_id=sub.id, filename=EMAIL_BODY_NAME).first()
+    body_name = f"{Path(doc.filename).stem}-body.txt" if has_body else EMAIL_BODY_NAME
+    _email_parts(db, sub, msg, doc, seen, depth + 1, body_name)
 
 
 def _unpack_zip(db, sub, doc, data, seen, depth):

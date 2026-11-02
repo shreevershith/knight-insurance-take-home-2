@@ -25,7 +25,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 
 | File | Responsibility | Key names |
 |---|---|---|
-| `app/intake.py` | Turns an email or uploaded files into stored documents, then pages. Stores each file by SHA-256 (duplicates marked `DUPLICATE`), unpacks zips (depth and member limits), reads the email body into `email-body.txt`. Splits files into pages: PDF pages (text layer + 150 dpi image; image-only if under 40 characters of text), XLSX sheets (cell dump such as `B4='DEVRAJ'`, with formula notes), Word body and tables, text, or one image (turned upright from EXIF, resized to 2000 px when needed). Anything else: `UNSUPPORTED` with the reason; a corrupt file: `UNREADABLE`. | `ingest_eml`, `ingest_files`, `email_body`, `split_pages`, `docx_text`, `_page_image` |
+| `app/intake.py` | Turns an email or uploaded files into stored documents, then pages. Stores each file by SHA-256 (duplicates marked `DUPLICATE`), unpacks zips (depth and member limits), reads the email body into `email-body.txt`, and opens emails found inside the submission (forwarded as attachments, zipped, or uploaded with other files). Splits files into pages: PDF pages (text layer + 150 dpi image; image-only if under 40 characters of text), XLSX sheets (cell dump such as `B4='DEVRAJ'`, with formula notes), Word body and tables, text, or one image (turned upright from EXIF, resized to 2000 px when needed). Anything else: `UNSUPPORTED` with the reason; a corrupt file: `UNREADABLE`. | `ingest_eml`, `ingest_files`, `email_body`, `split_pages`, `docx_text`, `_page_image` |
 | `app/classify.py` | Decides each page's document type by content. Text pages: regex content signatures first (free, explainable); if none is decisive, a Haiku call. Image pages: one vision call that classifies and transcribes the page (Sonnet), re-run on Opus if it fails or says "unreadable". | `classify_text_rules`, `classify_page`, `DOC_TYPES` |
 
 ### Extraction (`app/extract/`)
@@ -89,7 +89,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 | `scripts/cost_report.py` | Cost per run (and per task for one run) from the ledger. |
 | `scripts/make_sample_eml.py`, `make_heldout*.py` | Build the sample email from the case-study files; generate the three held-out submissions. |
 | `scripts/pg_setup.ps1` | Creates the app's Postgres user and database from `DATABASE_URL` (Windows). |
-| `tests/` | 80 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
+| `tests/` | 82 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Image (Python 3.12, non-root, health check) and the stack: app, worker(s), Postgres 18. |
 | `PLAN.md`, `DECISIONS.md`, `RUN_LOG.md` | Requirements and the guideline as rules; every decision with options and reasons; every real model run with its cost and score. |
 

@@ -177,6 +177,8 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 .cellbtn.lo { color: var(--unk); }
 
 .ai.e-ver { border-left-color: var(--ver); }
+.ai { grid-template-columns: 124px minmax(0, 1fr) auto; }   /* room for the longest label ("Verify first") */
+@media (max-width: 640px) { .ai { grid-template-columns: 1fr; } }
 
 /* the agent's email under the sender */
 .mail { margin: -6px 0 18px; }
@@ -243,7 +245,7 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
 {% block side %}
 <div class="eyebrow">Submission #{{ sub.id }}</div>
 <h2>{{ company or sub.subject }}</h2>
-<div class="meta">From {{ sub.sender }}<br>Received {{ sub.received_at.strftime('%b %d, %Y %H:%M') }}</div>
+<div class="meta">From {{ sub.sender or 'direct upload (no sender given)' }}<br>Received {{ sub.received_at.strftime('%b %d, %Y %H:%M') }}</div>
 {% if agent_email %}<details class="mail">
   <summary><span class="chev">›</span> Agent's email</summary>
   <div class="mail-body">{{ agent_email }}</div>
@@ -347,7 +349,7 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
         <div class="r">{{ c['values']|map(attribute='value')|unique|join('  vs  ') }}</div></div>
       <a class="btn sm" href="#C{{ c.id }}">Resolve</a></li>{% endfor %}
     {% for r in verify %}<li class="ai e-ver">
-      <div><span class="pill VERIFY">Check before quoting</span></div>
+      <div><span class="pill VERIFY" title="Check before quoting: needs data no submission contains">Verify first</span></div>
       <div><div class="t"><span class="f">{{ r.title }}</span></div><div class="r">{{ r.rule_id }} · {{ r.message }}</div></div>
       <a class="btn sm" href="#R{{ r.id }}">Review</a></li>{% endfor %}
     {% for r in not_eval %}<li class="ai e-unk">

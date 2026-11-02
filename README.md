@@ -20,8 +20,8 @@ decision, the reasons, and an AI-written summary they can verify.
 
 ## Features
 
-- **Email intake.** An `.eml` file (or loose files): the email body itself, PDF, Excel (`.xlsx`), Word (`.docx`),
-  text, images and zips. Zips are unpacked, duplicates caught by content hash, phone photos turned upright and sized
+- **Email intake.** An `.eml` file, or files uploaded directly with an optional sender and note: the email body
+  itself, emails forwarded as attachments or inside zips, PDF, Excel (`.xlsx`), Word (`.docx`), text, images and zips. Zips are unpacked, duplicates caught by content hash, phone photos turned upright and sized
   for the model. Anything else (TIFF, HEIC, `.doc`, `.msg`) is flagged UNSUPPORTED with the reason, never dropped.
 - **Classification by content, not file name.** A file called `scan001.pdf` that is really a loss run is read as a
   loss run; a vehicle list saved as `Book1.xlsx` is read as a vehicle schedule.
@@ -195,7 +195,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 - **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
   current scores are regression results; held-out #3 has not been used for any fix.
 - On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
-- 80 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
+- 82 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
 ## Project structure
 
