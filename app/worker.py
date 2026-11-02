@@ -5,6 +5,7 @@ submissions at once (docker compose up --scale worker=3). While a job runs, a he
 its lease. On SIGTERM/SIGINT (docker stop) the worker finishes polling; a job cut off mid-run is taken
 over by another worker once its lease runs out, and the pipeline's reprocess keeps all human work.
 """
+import faulthandler
 import os
 import signal
 import socket
@@ -30,7 +31,12 @@ def run_one(worker: str) -> bool:
 
     def heartbeat():
         while not done.wait(config.JOB_LEASE_SECONDS / 3):
-            if not jobs.renew(job_id, worker):
+            try:
+                held = jobs.renew(job_id, worker)
+            except Exception as exc:   # a database hiccup must not end the heartbeat: try again next beat
+                log.warning("lease renewal failed", job_id=job_id, error=f"{type(exc).__name__}: {exc}")
+                continue
+            if not held:
                 log.warning("lease lost", job_id=job_id)
                 return
     threading.Thread(target=heartbeat, daemon=True).start()
@@ -45,6 +51,9 @@ def run_one(worker: str) -> bool:
 
 def main() -> None:
     setup_logging()
+    # `docker compose kill -s SIGUSR1 worker` prints every thread's stack to the log: how to see where a stuck
+    # worker is waiting (containers don't allow a debugger to attach)
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     init_db()
     # unique per process start: a restarted container keeps its hostname and pid 1
     worker = f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"

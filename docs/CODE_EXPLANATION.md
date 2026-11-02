@@ -79,7 +79,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 | File | Responsibility |
 |---|---|
 | `app/jobs.py` | The queue on Postgres: `enqueue`, `claim_next` (`FOR UPDATE SKIP LOCKED`, lease, takeover of an expired lease), `renew`, `finish` (DONE, retry with backoff, or FAILED). |
-| `app/worker.py` | `python -m app.worker`: claims one job at a time, runs it with a heartbeat that renews the lease, records the outcome; stops cleanly on SIGTERM. |
+| `app/worker.py` | `python -m app.worker`: claims one job at a time, runs it with a heartbeat that renews the lease (a failed renewal is logged and retried), records the outcome; stops cleanly on SIGTERM; SIGUSR1 dumps every thread's stack. |
 
 ### Evaluation, scripts, tests, deployment
 
@@ -93,7 +93,7 @@ the core logic with honest notes on what to refactor next. For the big picture a
 | `scripts/cost_report.py` | Cost per run (and per task for one run) from the ledger. |
 | `scripts/make_sample_eml.py`, `make_heldout*.py` | Build the sample email from the case-study files; generate the four held-out submissions. |
 | `scripts/pg_setup.ps1` | Creates the app's Postgres user and database from `DATABASE_URL` (Windows). |
-| `tests/` | 113 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
+| `tests/` | 114 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Image (Python 3.12, non-root, health check) and the stack: app, worker(s), Postgres 18. |
 | `PLAN.md`, `DECISIONS.md`, `RUN_LOG.md` | Requirements and the guideline as rules; every decision with options and reasons; every real model run with its cost and score. |
 

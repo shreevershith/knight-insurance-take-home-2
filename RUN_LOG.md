@@ -539,3 +539,17 @@ Docker with tracing on (environment `docker`, content capture off), Langfuse Clo
 
 Tests: 113 (masking, capture-on PII masking, node-state summary, router choices, and a graph run with a LangChain call
 exported to an in-memory span exporter).
+
+### Full check with LangGraph, LangChain and Langfuse on (BT2, 11/03)
+
+| Check | Result |
+|---|---|
+| Seven paused submissions reprocessed (old node names) | all seven paused again at `await-review` |
+| Evals | sample 87/87, #1 72/72, #2 70/71 (same `mailing_state` miss), #3 69/69 (#8 and its copy #48), #4 67/67 |
+| Upload `.eml` (#49) | processed through the graph, DECLINE; a second reprocess click 409; an edit and a rules re-run during the run 409 |
+| Review actions on #47 (paused graph) | two conflict decisions, refusal (400, graph still paused), regenerate through the worker (summary fresh, new draft) |
+| Acknowledge on #45 | resolved, plain out-of-date note |
+| Langfuse, last hour | 38 traces: 21 `process-submission`, 13 `apply-review` (refusals as WARNING), 3 `regenerate-analysis`; the one ERROR is the refusal from before that fix |
+| Stall | first seven-job run: worker-2 waited 19 min before #48's analyst call, heartbeat silent, lease expired, worker-1 took over and finished it; two repeats: no stall (7 jobs in 165 s). Heartbeat hardened, stack dump on SIGUSR1 added (D-53) |
+
+Model cost of this check: about $2.10 (analyst and draft calls; everything else cached). Tests: 114.

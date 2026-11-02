@@ -85,7 +85,7 @@ def run(submission_id: int, claimed: bool = False) -> None:
             tracing.finish_run(db, sub, state, llm.run_id.get(), root)
         except Exception as exc:
             fail(db, submission_id, exc)
-            root.update(level="ERROR", status_message=f"{type(exc).__name__}: {exc}"[:500])
+            tracing.mark_error(root, exc)
         finally:
             db.close()
 

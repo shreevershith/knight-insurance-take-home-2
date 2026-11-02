@@ -138,3 +138,28 @@ def test_ops_page_goes_back_to_the_submission_you_came_from():
     assert 'href="/ops">Operations' not in page.text                              # not a link to itself
     page = client.get("/ops")
     assert page.text.count('href="/">← All submissions') == 1
+
+
+def test_a_failed_lease_renewal_does_not_stop_the_heartbeat(monkeypatch):
+    """A database error during one renewal is logged and retried; the lease is still kept for a long job."""
+    sid = _submission()
+    jobs.enqueue(sid)
+    monkeypatch.setattr(config, "JOB_LEASE_SECONDS", 0.3)            # a beat every 0.1 s
+    calls = []
+    real_renew = jobs.renew
+
+    def flaky_renew(job_id, w):
+        calls.append(time.monotonic())
+        if len(calls) == 1:
+            raise RuntimeError("connection reset")
+        return real_renew(job_id, w)
+    monkeypatch.setattr(jobs, "renew", flaky_renew)
+
+    def slow_run(submission_id, claimed=False):
+        time.sleep(0.5)
+        _set(Submission, submission_id, status="DONE")
+    monkeypatch.setitem(jobs.KINDS, "run", slow_run)
+    assert worker.run_one("w") is True
+    assert len(calls) >= 3                                         # kept beating after the failure
+    with SessionLocal() as db:
+        assert db.query(Job).filter_by(submission_id=sid).one().status == "DONE"

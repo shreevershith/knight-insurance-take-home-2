@@ -292,7 +292,9 @@ stateDiagram-v2
 - **One active job per submission**: `pipeline.claim` is an atomic conditional `UPDATE`; a second start gets HTTP 409.
 - **No double processing**: `SELECT … FOR UPDATE SKIP LOCKED` means two workers never take the same job.
 - **A dead worker doesn't lose work**: it stops renewing its lease; once the lease runs out another worker takes the
-  job over. This was tested by killing a worker mid-run (RUN_LOG QU1).
+  job over. This was tested by killing a worker mid-run (RUN_LOG QU1). A failed renewal (a database hiccup) is logged and
+  retried, not fatal to the heartbeat; `docker compose kill -s SIGUSR1 worker` prints every thread's stack to the log
+  to see where a stuck worker waits (D-53).
 - **Retries**: up to `JOB_MAX_ATTEMPTS` (3), with a growing delay, then FAILED with the reason.
 - **Restart**: at web startup, a submission still PROCESSING *without* a queued job is marked INTERRUPTED.
 - **Inside one job**, classification and extraction calls run `LLM_CONCURRENCY` (6) at a time on plain copies of the
@@ -420,7 +422,8 @@ are shared and every ledger line records which client sent it.
 
 **Proof of equivalence** (RUN_LOG LG1): the five eval sets reprocessed through the graph hit the cache on every
 page-level call and kept every score; a fully live run of held-out #3 through LangGraph and LangChain scored 69/69.
-**Rollback:** `PIPELINE_ENGINE=code`, `LLM_CLIENT=sdk`.
+**Rollback:** `PIPELINE_ENGINE=code`, `LLM_CLIENT=sdk`. These are kept on purpose (D-53): both engines run the same stage
+functions and both clients send the same request, so the switches cost a few lines and are tested.
 
 ## 12. Observability with Langfuse (D-52)
 

@@ -146,6 +146,13 @@ def _config(submission_id: int) -> dict:
     return {"configurable": {"thread_id": f"submission-{submission_id}"}, "recursion_limit": 1000}
 
 
+def _invoke(saver, payload, submission_id: int, run_name: str):
+    """Run or resume the submission's thread. The Langfuse callback (D-52) turns each node into a span and each
+    ChatAnthropic call into a generation; run_name names the graph run in the trace."""
+    return build(saver).invoke(payload, {**_config(submission_id), "callbacks": tracing.callbacks(),
+                                         "run_name": run_name})
+
+
 def waiting_for_review(submission_id: int) -> bool:
     """True when this submission's graph is paused at await-review."""
     if config.PIPELINE_ENGINE != "graph":
@@ -166,17 +173,14 @@ def run(submission_id: int) -> None:
             _checkpointer() as saver:
         saver.delete_thread(f"submission-{submission_id}")   # a reprocess starts over, like pipeline.run
         try:
-            # the Langfuse callback turns each node into a span and each ChatAnthropic call into a generation (D-52)
-            state = build(saver).invoke({"submission_id": submission_id},
-                                        {**_config(submission_id), "callbacks": tracing.callbacks(),
-                                         "run_name": "run-pipeline"})
+            state = _invoke(saver, {"submission_id": submission_id}, submission_id, "run-pipeline")
             with SessionLocal() as db:
                 tracing.finish_run(db, db.get(Submission, submission_id), state, llm.run_id.get(), root)
         except Exception as exc:
             with SessionLocal() as db:
                 pipeline.fail(db, submission_id, exc)
                 db.commit()
-            root.update(level="ERROR", status_message=f"{type(exc).__name__}: {exc}"[:500])
+            tracing.mark_error(root, exc)
 
 
 def apply_review(submission_id: int, action: dict[str, Any]) -> None:
@@ -184,9 +188,7 @@ def apply_review(submission_id: int, action: dict[str, Any]) -> None:
     (processed by the code engine, or before D-51) gets the same review function directly. Raises ReviewError."""
     if waiting_for_review(submission_id):
         with _checkpointer() as saver:
-            state = build(saver).invoke(Command(resume=action),
-                                        {**_config(submission_id), "callbacks": tracing.callbacks(),
-                                         "run_name": "resume-with-review"})
+            state = _invoke(saver, Command(resume=action), submission_id, "resume-with-review")
         if error := state.get("last_action", {}).get("error"):
             raise review.ReviewError(error)
     else:
@@ -198,9 +200,7 @@ def regenerate(submission_id: int) -> bool:
     if not waiting_for_review(submission_id):
         return False
     with _checkpointer() as saver:
-        build(saver).invoke(Command(resume={"kind": "regenerate"}),
-                            {**_config(submission_id), "callbacks": tracing.callbacks(),
-                             "run_name": "resume-with-regenerate"})
+        _invoke(saver, Command(resume={"kind": "regenerate"}), submission_id, "resume-with-regenerate")
     return True
 
 

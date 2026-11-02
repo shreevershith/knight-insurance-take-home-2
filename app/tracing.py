@@ -90,9 +90,14 @@ def trace(name: str, submission_id: int, *, input: dict, tags: list[str], user_i
         try:
             yield obs
         except Exception as exc:
-            obs.update(level="ERROR", status_message=f"{type(exc).__name__}: {exc}"[:500])
+            mark_error(obs, exc)
             raise
     lf.flush()   # workers and the web app are long-lived; flush so a finished run shows up at once
+
+
+def mark_error(obs, exc: Exception) -> None:
+    """An observation that ended in an unexpected error."""
+    obs.update(level="ERROR", status_message=f"{type(exc).__name__}: {exc}"[:500])
 
 
 @contextmanager

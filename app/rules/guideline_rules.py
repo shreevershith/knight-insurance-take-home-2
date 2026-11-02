@@ -168,10 +168,15 @@ def no_ineligible_vehicles(v, cfg) -> Result:
     if hits:
         return Result(False, "ineligible vehicle type: " + "; ".join(f"{u} ({t})" for u, t, _ in hits),
                       [i for *_, f in hits for i in f])
+    return _no_type_hits(units, f"no ineligible types among {len(units)} units")
+
+
+def _no_type_hits(units, passed: str) -> Result:
+    """No vehicle matched: a pass, unless the schedule states no types at all (then it can't be told)."""
     ids = [i for *_, f in units for i in f]
     if all(not t for _, t, _ in units):
         return Result(None, "vehicle types not stated on the schedule", ids)
-    return Result(True, f"no ineligible types among {len(units)} units", ids)
+    return Result(True, passed, ids)
 
 
 @rule("APP-03")
@@ -504,10 +509,7 @@ def box_trucks(v, cfg) -> Result:
     if hits:
         return Result(False, "box truck / transit van: " + "; ".join(f"{u} ({t})" for u, t, _ in hits)
                       + f". Minimum premium ${cfg['params']['box_truck_min_premium']:,}", [i for *_, f in hits for i in f])
-    ids = [i for *_, f in units for i in f]
-    if all(not t for _, t, _ in units):
-        return Result(None, "vehicle types not stated on the schedule", ids)
-    return Result(True, f"no box trucks or transit vans among {len(units)} units", ids)
+    return _no_type_hits(units, f"no box trucks or transit vans among {len(units)} units")
 
 
 @rule("SEL-03")
