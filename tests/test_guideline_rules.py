@@ -153,3 +153,17 @@ def test_verify_alone_gives_quote_after_checks_but_any_unknown_still_refers():
     bad = {**{k: v for k, v in cfg.items() if not k.startswith("_")},
            "rules": cfg["rules"] + [{"id": "X-01", "title": "x", "outcome": "REFER", "undetermined": "PASS"}]}
     assert any("X-01: undetermined must be one of" in e for e in engine.validate_config(bad))  # can't turn unknown into a pass
+
+
+def test_prohibited_commodity_keywords_match_whole_words_only():
+    # held-out #4 (D-46): "Paper towels" was declined as towing; batter and recycled paper had the same flaw
+    import re
+    pats = engine.load_config()["patterns"]["commodity_prohibited"]
+    cases = {"PRO-02": {"Lithium-ion batteries": True, "Car battery": True, "Pancake batter mix": False},
+             "PRO-06": {"Towing services": True, "Wrecker service": True, "Vehicles towed": True,
+                        "Paper towels and tissue": False, "Stowage equipment": False},
+             "PRO-08": {"Scrap metal": True, "Recycling materials": True, "Municipal waste": True,
+                        "Recycled paper products": False, "Scrapbook supplies": False}}
+    for rule, items in cases.items():
+        for text, prohibited in items.items():
+            assert bool(re.search(pats[rule], text, re.I)) is prohibited, (rule, text)

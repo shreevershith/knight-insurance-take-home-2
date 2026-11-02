@@ -1,0 +1,63 @@
+{
+  "_note": "HELD-OUT set #4 (D-46), written by hand on 11/02/2026 BEFORE the submission was generated or run: this file is the measurement's answer key. A Texas carrier whose agent email reaches Knight FORWARDED AS AN ATTACHMENT by a CSR (tests D-40 end to end). Planted: lithium-ion batteries in the commodities (PRO-02 decline), cross-border operations answered Yes (PRO-03 decline, D-39), a DUI 26 months ago with 8 points (DRV-07 decline, DRV-06 refer), a 67-year-old driver (DRV-05 not evaluated: no medical card is read), Texas miles (ST-02 not evaluated: I-10 not determinable), miles in OK and LA (ST-04 refer). Edge case found while designing: 'Paper towels and tissue' is NOT towing, so PRO-06 must PASS (the towing keyword list matches the substring 'tow'). Driver and vehicle schedules are two sheets of one workbook. Anchor date = application date 10/12/2026.",
+  "submission_subject": "Red River",
+  "documents": {
+    "forwarded-email.eml": "CONTAINER"
+  },
+  "pages": {
+    "Red River - Application.pdf": "APPLICATION",
+    "Red River schedules.xlsx": "DRIVER_SCHEDULE",
+    "MVRs.pdf": "MVR",
+    "Loss runs 2022-2026.pdf": "LOSS_RUN",
+    "IFTA 2025-2026.pdf": "IFTA_RETURN"
+  },
+  "fields": [
+    {"entity": "applicant", "field": "business_name", "expect": "RED RIVER CARTAGE LLC"},
+    {"entity": "applicant", "field": "fein", "expect": "75-4418290"},
+    {"entity": "applicant", "field": "dot_number", "expect": "2875510"},
+    {"entity": "applicant", "field": "mc_number", "expect": "984412"},
+    {"entity": "applicant", "field": "application_date", "expect": "2026-10-12"},
+    {"entity": "applicant", "field": "mailing_state", "expect": "TX"},
+    {"entity": "operations", "field": "cross_border", "expect": true},
+    {"entity": "coverage", "field": "apd_requested", "expect": false},
+    {"entity": "coverage", "field": "al_deductible", "expect": "None", "match": "contains:NONE"},
+    {"entity": "driver:062318447", "field": "dob", "doc_types": ["MVR"], "expect": "1959-03-15", "why": "the 67-year-old driver"},
+    {"entity": "loss_run:AL:BC9930417", "field": "total_incurred", "expect": 0},
+    {"entity": "ifta:2025-09-30", "field": "total_miles", "expect": 198000},
+    {"entity": "ifta:2025-12-31", "field": "total_miles", "expect": 189000},
+    {"entity": "ifta:2026-03-31", "field": "total_miles", "expect": 204000},
+    {"entity": "ifta:2026-06-30", "field": "total_miles", "expect": 210000}
+  ],
+  "derived": {
+    "cdl_years": {"BRANNON": 12.4, "MONROE": 15.1}
+  },
+  "rules": {
+    "APP-01": "PASS", "APP-02": "PASS", "APP-03": "PASS",
+    "COV-01": "PASS", "COV-02": "PASS", "NV-01": "PASS", "NV-02": "PASS",
+    "ST-01": "PASS", "ST-02": "NOT_EVALUATED", "ST-03": "PASS", "ST-04": "REFER",
+    "SUB-01": "PASS", "SUB-02": "PASS", "SUB-03": "PASS", "SUB-04": "PASS", "SUB-05": "PASS",
+    "SUB-06": "PASS", "SUB-07": "PASS", "SUB-08": "PASS",
+    "DRV-01": "PASS", "DRV-02": "PASS", "DRV-03": "PASS", "DRV-04": "PASS", "DRV-05": "NOT_EVALUATED",
+    "DRV-06": "REFER", "DRV-07": "DECLINE", "DRV-08": "PASS",
+    "PRO-01": "PASS", "PRO-02": "DECLINE", "PRO-03": "DECLINE", "PRO-05": "VERIFY",
+    "PRO-06": "PASS", "PRO-07": "PASS", "PRO-08": "PASS",
+    "SEL-01": "PASS", "SEL-02": "PASS", "SEL-03": "VERIFY",
+    "PRI-01": "PASS", "PRI-02": "PASS", "PRI-03": "PASS",
+    "CONFLICTS": "PASS", "RTE-01": "FLAG"
+  },
+  "rules_why": {
+    "ST-02": "TX miles every quarter: north of I-10 can't be told from the documents",
+    "ST-04": "IFTA miles in OK and LA, not available states",
+    "DRV-05": "Ramon Delgado is 67: a DOT medical report is required and isn't a document type the system reads",
+    "DRV-06": "Brannon: 8 points on 08/12/2024, within 36 months (> 6)",
+    "DRV-07": "Brannon: DUI 08/12/2024, within 60 months -> DECLINE",
+    "PRO-02": "commodity 'Lithium-ion batteries' 10% -> DECLINE",
+    "PRO-03": "cross-border operations answered Yes -> DECLINE (D-39)",
+    "PRO-06": "towing answered No; 'Paper towels and tissue' is paper goods, not towing",
+    "SEL-03": "8 power units < 20: premium checked at quoting",
+    "RTE-01": "8 power units -> Small Fleet"
+  },
+  "decision": "DECLINE",
+  "team": "Small Fleet",
+  "conflicts": []
+}

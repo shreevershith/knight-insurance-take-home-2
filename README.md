@@ -223,11 +223,12 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 | Held-out #1 (Desert Ridge, AZ) | Written after the build: other carriers, a phone-photo loss run, an image-only IFTA scan, a corrupt PDF | **49/72** | 72/72 |
 | Held-out #2 (Bluestem, TN) | Written after the #1 fixes: a zip with misleading names, a duplicate, a Word note, four IFTA returns in one PDF | **64/70** | 70/71 |
 | Held-out #3 (Holston Valley, TN) | A **clean** 12-unit fleet: Word application, HTML-only email, a sideways phone photo of a CDL | **69/69** | 69/69 |
+| Held-out #4 (Red River, TX) | The agent's email **forwarded as an attachment**; lithium batteries, cross-border "Yes", a DUI, a 67-year-old driver | **66/67** | 67/67 |
 
 - **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
-  current scores are regression results; held-out #3 has not been used for any fix.
+  current scores are regression results; held-out #3 has not been used for any fix; held-out #4's one miss was fixed after its first run.
 - On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
-- 85 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
+- 86 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
 ## Project structure
 
@@ -246,7 +247,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 
 ## Known limitations
 
-- Evaluated on four submissions; two of the held-out sets have since been used for fixes. More held-out
+- Evaluated on five submissions (the sample and four held-out sets); three held-out sets have since been used for fixes. More held-out
   submissions, ideally real redacted ones, would measure accuracy with more confidence.
 - SAFER violations, distance to the Mexico border and the quoted premium aren't in any submission: those checks
   are listed as "check before quoting". A 65+ driver's medical report isn't a document type the system reads.

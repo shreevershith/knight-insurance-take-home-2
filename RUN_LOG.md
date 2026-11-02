@@ -463,3 +463,19 @@ No rule, outcome or score changed (D-40 to D-43 are intake and display changes).
 
 The other summary regenerations of 11/01 (after D-39): #4 $0.051, #5 $0.234, #6 $0.136. Rules were re-run on
 every submission for the new message wording (no model calls). Sample #5 still 87/87; 83 tests pass.
+
+### Held-out #4: a forwarded email, several declines (HO6, 11/02)
+
+`eval/heldout/redriver.eml`, built by `scripts/make_heldout4.py` after the answer key
+(`eval/heldout/redriver_expected.json`); uploaded once to the Docker app (queue mode), submission #10.
+
+**First run: 66/67, DECLINE, Small Fleet**: correct decision and routing. Cost $0.161 (29 calls, 1 escalation).
+- The CSR's forward was opened; the agent's email inside it and its five attachments were read and classified
+  (application, a two-sheet workbook read as driver and vehicle lists, MVRs, loss runs, IFTA).
+- Declines: PRO-02 lithium batteries, PRO-03 cross-border "Yes", DRV-07 DUI 08/12/2024. Refers: DRV-06 (8 points),
+  ST-04 (OK, LA). Couldn't be checked: DRV-05 (67-year-old driver's medical card), ST-02 (Texas, I-10).
+- **Miss: PRO-06 declined "Paper towels and tissue" as towing** (substring `tow`). A wrong decline, so fixed (D-46):
+  whole-word keyword patterns for PRO-02, PRO-06 and PRO-08, with a look-alike test.
+
+After the fix: **67/67**; sample 87/87, #1 72/72, #2 70/71, #3 69/69 unchanged. Re-running the rules marked only #10's
+AI summary out of date (PRO-06 changed); regenerated, $0.123.

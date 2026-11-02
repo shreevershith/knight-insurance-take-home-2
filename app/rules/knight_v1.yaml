@@ -43,9 +43,11 @@ params:
 patterns:
   # D-29: prohibited exposures decided from the commodity list ("not listed" is weaker than "answered No")
   commodity_prohibited:
-    PRO-02: 'lithium|batter'
-    PRO-06: 'tow|recovery|wreck'
-    PRO-08: 'waste|garbage|refuse|trash|scrap|recycl'
+    # whole words (held-out #4, D-46): 'batter' alone would match pancake batter, 'tow' paper towels,
+    # 'recycl' recycled paper; these are commodities, not the prohibited exposure
+    PRO-02: 'lithium|\bbatter(y|ies)\b'
+    PRO-06: '\btow(s|ed|ing)?\b|tow truck|\brecovery\b|wreck'
+    PRO-08: 'waste|garbage|\brefuse\b|trash|\bscrap\b|\brecycling\b'
   # PRO-03: states on the US/Mexico border, reported as context (proximity itself isn't determinable)
   border_states: [CA, AZ, NM, TX]
   # D-26: MVR history events that prove a CDL was held on that date

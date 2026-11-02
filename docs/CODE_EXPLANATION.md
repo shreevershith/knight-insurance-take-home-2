@@ -83,13 +83,13 @@ the core logic with honest notes on what to refactor next. For the big picture a
 |---|---|
 | `eval/run_eval.py` | Scores a processed submission against an answer key: document status, page types, field values, derived values, every rule outcome, decision, team, expected conflicts. |
 | `eval/cobalt_mesa_expected.json` | Answer key for the case-study sample (87 checks; a regression check, since the system was built against it). |
-| `eval/heldout/*_expected.json`, `*.eml`, folders | Three submissions written after the build, answer keys written before their first run: Desert Ridge, Bluestem, Holston Valley (clean fleet). |
+| `eval/heldout/*_expected.json`, `*.eml`, folders | Four submissions written after the build, answer keys written before their first run: Desert Ridge, Bluestem, Holston Valley (clean fleet), Red River (forwarded email). |
 | `eval/experiments/*.sh` | The model-mix cost experiments (RUN_LOG). |
 | `scripts/run_sample.py` | Runs the whole pipeline from the command line on an `.eml`, no web server. |
 | `scripts/cost_report.py` | Cost per run (and per task for one run) from the ledger. |
-| `scripts/make_sample_eml.py`, `make_heldout*.py` | Build the sample email from the case-study files; generate the three held-out submissions. |
+| `scripts/make_sample_eml.py`, `make_heldout*.py` | Build the sample email from the case-study files; generate the four held-out submissions. |
 | `scripts/pg_setup.ps1` | Creates the app's Postgres user and database from `DATABASE_URL` (Windows). |
-| `tests/` | 85 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
+| `tests/` | 86 tests, no API calls: guards, rules per section, reprocess keeping human work, cost controls and routing, queue and leases, Word and email intake, photos, review fixes. `conftest.py` points every test at a throwaway data folder and database. |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Image (Python 3.12, non-root, health check) and the stack: app, worker(s), Postgres 18. |
 | `PLAN.md`, `DECISIONS.md`, `RUN_LOG.md` | Requirements and the guideline as rules; every decision with options and reasons; every real model run with its cost and score. |
 
