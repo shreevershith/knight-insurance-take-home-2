@@ -14,3 +14,6 @@ eval/experiments/*.txt
 
 # local Claude Code settings (dev server launch config)
 .claude/
+
+# private notes (video script)
+notes/
