@@ -134,7 +134,7 @@ def test_ops_page_goes_back_to_the_submission_you_came_from():
     from app.web.main import app
     client = TestClient(app)
     page = client.get("/ops", headers={"referer": "http://testserver/submissions/9"})
-    assert page.text.count('href="/submissions/9">← Back to submission #9') == 2   # header and button
+    assert page.text.count('href="/submissions/9">← Back to submission #9') == 1   # in the header
     assert 'href="/ops">Operations' not in page.text                              # not a link to itself
     page = client.get("/ops")
-    assert page.text.count('href="/">← All submissions') == 2
+    assert page.text.count('href="/">← All submissions') == 1
