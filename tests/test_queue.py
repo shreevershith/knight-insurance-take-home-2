@@ -126,3 +126,15 @@ def test_ops_page_lists_queue_failures_and_cost():
     assert page.status_code == 200
     assert "Needs attention" in page.text and "Failed after 3 attempt(s): boom" in page.text
     assert f"#{sid}" in page.text and "Cost per run" in page.text
+
+
+def test_ops_page_goes_back_to_the_submission_you_came_from():
+    from fastapi.testclient import TestClient
+
+    from app.web.main import app
+    client = TestClient(app)
+    page = client.get("/ops", headers={"referer": "http://testserver/submissions/9"})
+    assert page.text.count('href="/submissions/9">← Back to submission #9') == 2   # header and button
+    assert 'href="/ops">Operations' not in page.text                              # not a link to itself
+    page = client.get("/ops")
+    assert page.text.count('href="/">← All submissions') == 2

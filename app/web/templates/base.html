@@ -260,7 +260,8 @@ q.snip, .snip { border-radius: 4px; }
     <span class="sep" aria-hidden="true">/</span>
     <span class="brand-sub">Commercial auto · trucking program submissions</span>
     <div class="spacer"></div>
-    <a class="toplink" href="/ops">Operations</a>
+    {% if back %}<a class="toplink" href="{{ back.url }}">← {{ back.label }}</a>
+    {% else %}<a class="toplink" href="/ops">Operations</a>{% endif %}
     <span class="model" title="Model per task. A cheap model's result that fails a code check is re-run on Opus."><span class="mk">Models</span><span class="dot ok"></span>{{ model_chip() }}</span>
   </div>
 </header>

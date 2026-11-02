@@ -8,7 +8,7 @@ from pathlib import Path
 
 from sqlalchemy import func
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -167,6 +167,15 @@ def _cost_runs(limit: int = 15) -> list[dict]:
     return sorted(runs.values(), key=lambda r: r["at"], reverse=True)[:limit]
 
 
+def _came_from(request: Request) -> dict:
+    """Where 'back' goes from the operations page: the submission the person came from, else the list."""
+    ref = urlparse(request.headers.get("referer", ""))
+    m = re.fullmatch(r"/submissions/(\d+)", ref.path or "")
+    if m and ref.netloc == request.url.netloc:
+        return {"url": f"/submissions/{m.group(1)}", "label": f"Back to submission #{m.group(1)}"}
+    return {"url": "/", "label": "All submissions"}
+
+
 @app.get("/ops", response_class=HTMLResponse)
 def ops(request: Request):
     """Operations view (read-only): the job queue, what needs attention, and cost per run."""
@@ -191,7 +200,7 @@ def ops(request: Request):
             "escalation_rate": (sum(r["escalated"] for r in priced) / max(1, sum(r["calls"] - r["cached"] for r in priced))),
             "settings": {"Job mode": config.JOB_MODE, "Page calls at a time": config.LLM_CONCURRENCY,
                          "Lease": f"{config.JOB_LEASE_SECONDS}s", "Max attempts": config.JOB_MAX_ATTEMPTS},
-            "now": _utc_iso(utcnow())})
+            "now": _utc_iso(utcnow()), "back": _came_from(request)})
 
 
 @app.post("/submissions")
