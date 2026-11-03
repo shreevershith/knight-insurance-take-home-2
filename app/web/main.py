@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from app import config, graph, jobs, pipeline, review, tracing
 from app.config import data_path
 from app.web.labels import (action_label, capitalize_first, check_lines, doc_type_label, entity_labels, field_label,
-                            label_for, problems_only,
+                            based_on, label_for, problems_only, readable_excerpt, rule_lines,
                             method_label, plain_error, status_label)
 from app.db import (latest_rule_results, AuditEvent, Conflict, Document, Field, Job, JobLog, Page, RuleResult, SessionLocal, Submission,
                     audit, init_db, utcnow)
@@ -83,8 +83,44 @@ def _group_values(entities: dict) -> tuple[list, dict]:
                                       "low": any(f.status == "LOW_CONFIDENCE" for f in items)})
             continue
         label = next((lab for lab, kinds in VALUE_GROUPS if kind in kinds), "Other")
-        groups[label].append((key, items))
+        groups[label].append((key, items, _facts(items)))
     return [(label, rows) for label, rows in groups.items() if rows], dict(ifta_rows)
+
+
+_PERSON_NAMES = {"full_name", "driver_name", "contact_name", "agency_contact"}
+
+
+def _same_value_key(name: str, value) -> str:
+    """When two readings are the same value: compared the way conflicts are (dates and case normalized,
+    "RAMOS, HECTOR" = "HECTOR RAMOS"), so the page never shows as different what isn't a disagreement."""
+    from app.extract.normalize import name_tokens, normalize
+    if name in _PERSON_NAMES:
+        return " ".join(sorted(name_tokens(str(value))))
+    norm = normalize(name, value)
+    return str(norm if norm not in (None, "") else " ".join(str(value).split()).rstrip(".").upper())
+
+
+def _facts(items) -> list[dict]:
+    """One row per fact instead of one per reading (D-57): the fact's distinct values, each with every document
+    that stated it (so agreeing documents show as one value with several sources, disagreeing ones as separate
+    values), and readings a person's decision replaced folded underneath. A fact with only replaced readings
+    (e.g. a superseded older MVR) shows them as its values."""
+    by_name: dict[str, list] = defaultdict(list)
+    for f in items:
+        by_name[f.name].append(f)
+    facts = []
+    for name, fields in by_name.items():
+        active = [f for f in fields if f.status != "SUPERSEDED"]
+        replaced = [f for f in fields if f.status == "SUPERSEDED"]
+        if not active:
+            active, replaced = replaced, []
+        values: dict[str, list] = {}
+        for f in sorted(active, key=lambda f: (f.method != "human", -f.confidence, f.id)):
+            values.setdefault(_same_value_key(name, f.value), []).append(f)
+        facts.append({"name": name, "values": list(values.values()), "replaced": replaced,
+                      "low": any(f.status == "LOW_CONFIDENCE" for f in active),
+                      "human": any(f.method == "human" for f in active)})
+    return facts
 
 
 def _summary_blocks(text: str) -> list[tuple[str, object]]:
@@ -118,8 +154,8 @@ def _summary_blocks(text: str) -> list[tuple[str, object]]:
 
 templates.env.filters["summary_blocks"] = _summary_blocks
 templates.env.globals["label_for"] = label_for
-for _fn in (action_label, check_lines, doc_type_label, field_label, method_label, plain_error, problems_only,
-            status_label):
+for _fn in (action_label, based_on, check_lines, doc_type_label, field_label, method_label, plain_error, problems_only,
+            readable_excerpt, rule_lines, status_label):
     templates.env.globals[_fn.__name__] = _fn
 templates.env.filters["capitalize_first"] = capitalize_first  # Jinja's capitalize would lowercase the rest
 templates.env.globals["model_chip"] = lambda: " · ".join(

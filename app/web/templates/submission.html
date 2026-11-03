@@ -213,6 +213,13 @@ details[open]::details-content { height: auto; }
 .conf { font: 11.5px/1 var(--mono); color: var(--muted); }
 .ev { margin-top: 8px; display: grid; gap: 2px; }
 .notes { margin: 8px 0 0; padding-left: 16px; color: var(--flag); font-size: 12px; }
+.vgrp + .vgrp { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.srcline { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; margin-top: 8px; border-radius: 4px; }
+.srcline .ev { margin-top: 0; min-width: 0; }
+.srcline.flash { animation: flash 1.6s ease-out; }
+.rule .plist { margin: 2px 0 0; padding-left: 18px; } .rule .plist li { margin: 1px 0; }
+.rule .oks { margin-top: 4px; } .rule .oks > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.replaced { margin-top: 10px; } .replaced > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
 .fix > summary { list-style: none; cursor: pointer; display: inline-block; margin-top: 8px; font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
 .fix > summary::-webkit-details-marker { display: none; }
 .edit { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--surface); }
@@ -411,7 +418,7 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   {% if failing %}{% set declines = failing|selectattr('outcome', 'equalto', 'DECLINE')|list %}
   <h3 class="rv-h">{{ 'Reasons to decline or refer' if declines else 'Reasons to refer' }} <span>{{ failing|length }}</span></h3>
   <ul class="actions-list">
-    {% for r in failing|sort(attribute='outcome') %}{{ review_item(r, 'e-fail' if r.outcome in ('DECLINE', 'ERROR') else 'e-refer', r.outcome, {'DECLINE': 'Decline', 'ERROR': 'Rule error'}.get(r.outcome, 'Refer'), problems_only(r.message)) }}{% endfor %}
+    {% for r in failing|sort(attribute='outcome') %}{{ review_item(r, 'e-fail' if r.outcome in ('DECLINE', 'ERROR') else 'e-refer', r.outcome, {'DECLINE': 'Decline', 'ERROR': 'Rule error'}.get(r.outcome, 'Refer'), rule_lines(r.message)[0]|join('; ')) }}{% endfor %}
   </ul>{% endif %}
   {% if open_conflicts %}
   <h3 class="rv-h">Documents that disagree <span>{{ open_conflicts|length }}</span></h3>
@@ -429,7 +436,7 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   {% if not_eval %}
   <h3 class="rv-h">Couldn't be checked <span>{{ not_eval|length }}</span><em>a person decides</em></h3>
   <ul class="actions-list">
-    {% for r in not_eval %}{{ review_item(r, 'e-unk', 'NOT_EVALUATED', 'Unknown', problems_only(r.message)) }}{% endfor %}
+    {% for r in not_eval %}{{ review_item(r, 'e-unk', 'NOT_EVALUATED', 'Unknown', rule_lines(r.message)[0]|join('; ')) }}{% endfor %}
   </ul>{% endif %}
   {% else %}<div class="allclear"><span class="tick">✓</span>Nothing failed, nothing conflicting. Every rule passed.</div>{% endif %}
 </section>
@@ -499,11 +506,14 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   {% for o in outcome_order %}{% for r in rules if r.outcome == o %}
   <div class="rule" id="R{{ r.id }}">
     <div class="id">{{ r.rule_id }}</div>
-    <div><div class="nm">{{ r.title }}</div><div class="why">{{ r.message|replace(' | OK: ', ' · OK: ') }}</div>
-      <div class="cl">“{{ r.source_clause }}”</div>
+    {% set probs, fine = rule_lines(r.message) %}
+    <div><div class="nm">{{ r.title }}</div>
+      <div class="why">{% if probs|length > 1 %}<ul class="plist">{% for x in probs %}<li>{{ x }}</li>{% endfor %}</ul>{% elif probs %}{{ probs[0] }}{% endif %}
+        {% if fine %}<details class="oks"{% if not probs %} open{% endif %}><summary>{{ fine|length }} fine</summary><ul class="plist">{% for x in fine %}<li>{{ x }}</li>{% endfor %}</ul></details>{% endif %}</div>
+      <div class="cl">Guideline: “{{ r.source_clause }}”</div>
       {% set inputs = [] %}{% for fid in r.input_field_ids if field_by_id.get(fid) %}{% set _ = inputs.append(field_by_id[fid]) %}{% endfor %}
-      {% if inputs %}<div class="in chips"><span class="small muted">Based on</span>{% for g in inputs|groupby('name') %}
-        <a class="chip" href="#F{{ g.list[0].id }}" title="{{ g.list|length }} value(s)">{{ g.grouper|replace('_', ' ') }}{% if g.list|length > 1 %} ×{{ g.list|length }}{% endif %}</a>{% endfor %}</div>{% endif %}</div>
+      {% if inputs %}<div class="in chips"><span class="small muted">Values used</span>{% for text, fid in based_on(inputs) %}
+        <a class="chip" href="#F{{ fid }}">{{ text }}</a>{% endfor %}</div>{% endif %}</div>
     <div class="st"><span class="pill {{ r.outcome }}">{{ r.outcome|replace('_', ' ') }}</span>
       {% if previous and previous.get(r.rule_id) and previous[r.rule_id] != r.outcome %}<div class="was">was {{ previous[r.rule_id]|replace('_', ' ')|lower }}</div>{% endif %}</div>
   </div>{% endfor %}{% else %}{% endfor %}
@@ -553,33 +563,45 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   {% for label, entries in value_groups %}
   <div class="vgroup">
     <div class="eyebrow">{{ label }}</div>
-    {% for key, items in entries %}
+    {% for key, items, facts in entries %}
     {% set period = key.split(':', 1)[1] if key.startswith('ifta:') else None %}
     {% set jrows = ifta_rows.get(period, []) if period else [] %}
-    {% set lows = (items|selectattr('status', 'equalto', 'LOW_CONFIDENCE')|list|length) + (jrows|selectattr('low')|list|length) %}
+    {% set lows = (facts|selectattr('low')|list|length) + (jrows|selectattr('low')|list|length) %}
     <details class="entity" {% if label.startswith('Applicant') %}open{% endif %}>
       <summary><span class="chev">›</span><span class="nm">{{ label_for(key, names) }}</span>
-        <span class="small muted">{{ items|length }} values{% if jrows %} · {{ jrows|length }} jurisdictions{% endif %}</span>
+        <span class="small muted">{{ facts|length }} values{% if jrows %} · {{ jrows|length }} jurisdictions{% endif %}</span>
         {% if lows %}<span class="pill LOW_CONFIDENCE">{{ lows }} to review</span>{% endif %}
-        {% set dis = items|selectattr('id', 'in', disagree)|list|length %}{% if dis %}<span class="pill CONFLICT">{{ dis }} disagree</span>{% endif %}</summary>
-      {% for f in items %}
-      {% set failed = check_lines(f.validation)|rejectattr(0)|list %}
-      <div class="field {{ 'ovr' if f.method == 'human' else ('miss' if failed else ('att' if f.status == 'LOW_CONFIDENCE' else '')) }} frow" id="F{{ f.id }}" data-low="{{ 1 if f.status == 'LOW_CONFIDENCE' else 0 }}">
-        <div><div class="lab">{{ field_label(f.name)|capitalize_first }}</div><div class="key">{{ method_label(f.method)|capitalize_first }}</div></div>
+        {% set dis = namespace(n=0) %}{% for fact in facts %}{% set ids = [] %}{% for grp in fact['values'] %}{% for f in grp %}{% set _ = ids.append(f.id) %}{% endfor %}{% endfor %}{% if ids|select('in', disagree)|list %}{% set dis.n = dis.n + 1 %}{% endif %}{% endfor %}{% if dis.n %}<span class="pill CONFLICT">{{ dis.n }} disagree</span>{% endif %}</summary>
+      {# one row per fact (D-57): each value once, with every document that stated it #}
+      {% for fact in facts %}{% set first = fact['values'][0][0] %}
+      <div class="field fact frow {{ 'ovr' if fact.human else ('att' if fact.low else '') }}" data-low="{{ 1 if fact.low else 0 }}">
+        <div><div class="lab">{{ field_label(fact.name)|capitalize_first }}</div>
+          <div class="key">{% if fact['values']|length > 1 %}{{ fact['values']|length }} different values{% elif fact['values'][0]|length > 1 %}found in {{ fact['values'][0]|length }} places, all the same{% else %}found in 1 place{% endif %}</div></div>
         <div style="min-width:0">
-          <div class="vline"><span class="val">{{ f.value }}</span>
-            {% if f.method == 'human' %}<span class="pill human">Human override</span>{% elif f.status != 'OK' %}<span class="pill {{ f.status }}">{{ f.status|replace('_', ' ') }}</span>{% endif %}
-            <span class="conf" title="Confidence computed from how it was read and what the checks found">confidence {{ '%.2f'|format(f.confidence) }}</span>
-            {% if disagree.get(f.id) %}<a class="pill CONFLICT disagree" href="#C{{ disagree[f.id] }}" title="Another document states a different value: see the conflict and choose">Sources disagree →</a>{% endif %}</div>
-          {% if f.excerpt %}<div class="ev"><span class="loc">{{ src(f) }}</span><q class="snip">{{ f.excerpt }}</q></div>{% endif %}
-          {% if failed %}<ul class="notes">{% for ok, text in failed %}<li>{{ text }}</li>{% endfor %}</ul>{% endif %}
-          {% if f.status != 'SUPERSEDED' %}<details class="fix"><summary>Correct this value</summary>
-            <form class="edit" method="post" action="/fields/{{ f.id }}/override"><span class="elab">Reviewer correction</span>
-              <input type="text" name="value" value="{{ f.value }}" aria-label="Corrected value">
+          {% for grp in fact['values'] %}{% set f0 = grp[0] %}
+          <div class="vgrp">
+            <div class="vline"><span class="val">{{ f0.value }}</span>
+              {% if f0.method == 'human' %}<span class="pill human">Your decision</span>{% elif grp|selectattr('status', 'equalto', 'LOW_CONFIDENCE')|list %}<span class="pill LOW_CONFIDENCE">low confidence</span>{% elif f0.status == 'SUPERSEDED' %}<span class="pill SUPERSEDED">superseded</span>{% endif %}
+              {% set dl = grp|map(attribute='id')|select('in', disagree)|list %}{% if dl %}<a class="pill CONFLICT disagree" href="#C{{ disagree[dl[0]] }}" title="Another document states a different value: see the conflict and choose">Sources disagree →</a>{% endif %}</div>
+            {% for f in grp %}{% set failed = check_lines(f.validation)|rejectattr(0)|list %}
+            <div class="srcline" id="F{{ f.id }}">
+              <div class="ev"><span class="loc">{{ src(f) }} · {{ method_label(f.method) }} · confidence {{ '%.2f'|format(f.confidence) }}</span>
+                {% if f.excerpt %}<q class="snip">{{ readable_excerpt(f.excerpt) }}</q>{% endif %}
+                {% if failed %}<ul class="notes">{% for ok, text in failed %}<li>{{ text }}</li>{% endfor %}</ul>{% endif %}</div>
+              {% if f.page_id and pages.get(f.page_id) and pages[f.page_id].image_path %}<button class="btn sm" type="button" data-evidence data-id="{{ f.id }}" data-entity="{{ label_for(key, names) }}">View page</button>{% endif %}
+            </div>{% endfor %}
+          </div>{% endfor %}
+          {% if fact.replaced %}<details class="replaced"><summary>{{ fact.replaced|length }} earlier reading{{ 's' if fact.replaced|length > 1 }}, replaced by your decision</summary>
+            {% for f in fact.replaced %}<div class="srcline" id="F{{ f.id }}"><div class="ev"><span class="loc">{{ src(f) }} · {{ method_label(f.method) }}</span>
+              <span><b>{{ f.value }}</b></span>{% if f.excerpt %}<q class="snip">{{ readable_excerpt(f.excerpt) }}</q>{% endif %}</div></div>{% endfor %}
+          </details>{% endif %}
+          {% if first.status != 'SUPERSEDED' %}<details class="fix"><summary>Correct this value</summary>
+            <form class="edit" method="post" action="/fields/{{ first.id }}/override"><span class="elab">Reviewer correction</span>
+              <input type="text" name="value" value="{{ first.value }}" aria-label="Corrected value">
               <input type="text" name="reason" placeholder="Reason (required)" required aria-label="Reason">
               <button class="btn primary sm">Save</button></form></details>{% endif %}
         </div>
-        <div>{% if f.page_id and pages.get(f.page_id) and pages[f.page_id].image_path %}<button class="btn sm" type="button" data-evidence data-id="{{ f.id }}" data-entity="{{ label_for(key, names) }}">View page</button>{% endif %}</div>
+        <div></div>
       </div>
       {% endfor %}
       {% if jrows %}
@@ -663,7 +685,7 @@ table.jur { margin: 4px 0 14px; } table.jur td, table.jur th { padding: 6px 12px
   // jump links to a value, rule or conflict: open its group and flash it
   const flash = id => {
     const el = id && document.getElementById(id); if (!el || el.tagName === "SECTION") return;
-    const d = el.closest("details.entity"); if (d) d.open = true;
+    const d = el.closest("details.entity"); if (d) d.open = true; const rep = el.closest("details.replaced"); if (rep) rep.open = true;
     const target = el.tagName === "TD" ? el.parentElement : el;
     setTimeout(() => { target.scrollIntoView({ block: "center", behavior: "smooth" });
                        target.classList.remove("flash"); void target.offsetWidth; target.classList.add("flash"); }, 30);

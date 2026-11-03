@@ -178,8 +178,12 @@ Each submission page answers, top to bottom: **what's the decision, what needs a
   *Ready to quote*, with the team: Small Fleet (1–10 power units) or Fleet (11+).
 - **To review.** Everything that needs a person, grouped: reasons to refer or decline, documents that disagree (each
   value with the document it came from), what to verify before quoting, and what couldn't be checked.
-- **Extracted data.** Every value with its source line; a value that another document contradicts shows
-  *Sources disagree →*, which jumps to the disagreement.
+- **Extracted data.** One row per fact: the value once, with every document and line it was read from (spreadsheet
+  cells in words, e.g. "Agency Name: BAYLINE INSURANCE AGENCY INC (cell E15)"). When documents disagree, each value is
+  shown with its sources and *Sources disagree →* jumps to the disagreement; readings replaced by your decision fold
+  under "earlier readings".
+- **Rule checks.** What needs attention as a list, the drivers or items that are fine folded under "N fine", the
+  guideline sentence, and the values used in words ("Commercial license (5 drivers)", "MVR history entries (16)").
 - **Underwriter summary.** Written by the AI: concerns and next actions, each citing the values it relies on. Advisory
   only; it never changes the decision. Below it, **Draft reply to the agent**: edit, Copy, send it from your own email.
 - **Rule checks.** All 42 rules with their outcome, the guideline sentence they implement and the values they used.
@@ -251,7 +255,7 @@ Each set is scored with `eval/run_eval.py` against expected values written by ha
 - **The first-run numbers are the measurements.** Held-out #1 and #2 were then used to fix general causes, so their
   current scores are regression results; held-out #3 has not been used for any fix; held-out #4's one miss was fixed after its first run.
 - On every unseen submission, **every miss went toward "refer"**: nothing was wrongly passed or wrongly declined.
-- 116 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
+- 121 automated tests cover the guards, every rule section, reprocessing, the queue and the intake formats.
 
 ## Project structure
 

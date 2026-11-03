@@ -2,6 +2,7 @@
 
 The key stays visible (small, monospace) for traceability; the name is what a reader scans.
 """
+import re
 from collections import defaultdict
 from datetime import datetime
 
@@ -156,6 +157,75 @@ def capitalize_first(text: str) -> str:
 def problems_only(message: str) -> str:
     """A per-driver rule message without its passing part (engine joins that on ' | OK: ')."""
     return message.split(" | OK: ")[0]
+
+
+# "SANDHU, DEVRAJ: no CDL; MORALES, LUIS E: ..." -> one item per person (split only before "LAST, FIRST")
+_PERSON_ITEM = re.compile(r";\s+(?=[A-Z][A-Z'\-]+(?: [A-Z][A-Z'\-]+)*, [A-Z])")
+_LEADING_NAME = re.compile(r"^([A-Z][A-Z'\-]+(?: [A-Z][A-Z'\-]+)*), ([A-Z][A-Z .'\-]*?):")
+
+
+def _person_items(text: str) -> list[str]:
+    items = [t.strip() for t in _PERSON_ITEM.split(text) if t.strip()]
+    return [_LEADING_NAME.sub(lambda m: f"{_title(m.group(2))} {_title(m.group(1))}:", t) for t in items]
+
+
+def rule_lines(message: str) -> tuple[list[str], list[str]]:
+    """A rule's reason as (what needs attention, what is fine), one line per driver or item, names written
+    "Devraj Sandhu" instead of "SANDHU, DEVRAJ". A message with no per-person part is one line."""
+    problems, _, fine = (message or "").partition(" | OK: ")
+    return _person_items(problems), _person_items(fine)
+
+
+# spreadsheet cells as the extractor quotes them: "C7='Date of Application' | E7=10/22/2026"
+_CELL = re.compile(r"^([A-Z]{1,3}\d+)=(.*)$", re.S)
+
+
+def readable_excerpt(text: str) -> str:
+    """A quoted spreadsheet line in words: "Date of Application: 10/22/2026 (cells C7, E7)". Other quotes unchanged."""
+    if not text or not re.search(r"\b[A-Z]{1,3}\d+=", text):
+        return text
+    cells, words = [], []
+    for part in text.split(" | "):
+        m = _CELL.match(part.strip())
+        if m:
+            cells.append(m.group(1))
+            part = m.group(2)
+        part = part.strip().strip("'").strip().rstrip(":").strip()
+        if part:
+            words.append(part)
+    if not cells or not words:
+        return text
+    shown = ": ".join(words) if len(words) == 2 else " · ".join(words)
+    return f"{shown} (cell{'s' if len(cells) > 1 else ''} {', '.join(cells)})"
+
+
+_HISTORY = ("violation", "license_event")
+_PLURAL = {"driver": "drivers", "vehicle": "vehicles", "claim": "claims", "loss_run": "loss runs",
+           "prior_policy": "prior policies", "ifta": "fuel-tax returns", "ifta_row": "fuel-tax rows",
+           "commodity": "commodities"}
+
+
+def based_on(fields) -> list[tuple[str, int]]:
+    """The values a rule used, in words: "Commercial license (5 drivers)", "MVR history entries (16)",
+    "Application date". Each with the id of one of its values to jump to."""
+    groups: dict[str, list] = {}
+    for f in fields:
+        kind = f.entity_key.split(":", 1)[0]
+        if kind in _HISTORY:
+            key = "MVR history entries"
+        else:
+            key = f"{field_label(f.name)}|{kind}"
+        groups.setdefault(key, []).append(f)
+    out = []
+    for key, fs in groups.items():
+        entities = len({f.entity_key for f in fs})
+        if key == "MVR history entries":
+            text = f"MVR history entries ({entities})"
+        else:
+            label, kind = key.split("|")
+            text = capitalize_first(label) + (f" ({entities} {_PLURAL.get(kind, 'items')})" if entities > 1 else "")
+        out.append((text, fs[0].id))
+    return out
 
 
 def field_label(name: str) -> str:
